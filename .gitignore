@@ -1,0 +1,5 @@
+pelorus
+*.exe
+*.test
+*.out
+.DS_Store
