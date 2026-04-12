@@ -814,51 +814,40 @@ func (m *Model) View() string {
 }
 
 // renderHeader builds the branded header bar (1 row).
-// We concatenate pre-rendered sections directly rather than wrapping in an
-// outer Render() call, which avoids double-rendering ANSI sequences and
-// ensures the teal background is always visible.
+// Single lipgloss.Style applied to a plain fmt.Sprintf string — the most
+// reliable approach for guaranteed background fill across all terminals.
 func (m *Model) renderHeader() string {
-	t := m.theme
-
-	// Left section: app title.
-	const titleContent = "  PELORUS  "
-	title := t.HeaderTitle.Render(titleContent)
-	titleW := lipgloss.Width(title)
-
-	// Right section: pane indicator + key hints.
-	paneLabel := " ⬡ left"
+	paneLabel := "⬡ left"
 	if m.activePane == 1 {
-		paneLabel = " ⬡ right"
+		paneLabel = "⬡ right"
 	}
-	hintsContent := "  ctrl+p palette   g jump   c connect  "
-	paneStr := t.HeaderTitle.Copy().
-		Background(lipgloss.Color(t.HeaderBg)).
-		Foreground(lipgloss.Color("#00ffd0")).
-		Render(paneLabel)
-	hintStr := t.HeaderHint.Render(hintsContent)
-	right := paneStr + hintStr
-	rightW := lipgloss.Width(right)
 
-	// Center section: active pane path, fills remaining width.
-	centerW := m.width - titleW - rightW
-	if centerW < 1 {
-		centerW = 1
-	}
-	ap := m.activeP()
-	centerPath := ap.Path
-	// Truncate to fit, accounting for padding.
-	maxChars := centerW - 2
-	if maxChars < 1 {
-		maxChars = 1
-	}
-	runes := []rune(centerPath)
-	if len(runes) > maxChars {
-		centerPath = "…" + string(runes[len(runes)-maxChars+1:])
-	}
-	center := t.HeaderPath.Width(centerW).Render(" " + centerPath)
+	left := "  PELORUS"
+	right := "   " + paneLabel + "   ctrl+p palette   g jump   c connect  "
 
-	// Concatenate directly — each section already carries the header background.
-	return title + center + right
+	// Fit the active path into the center gap.
+	path := m.activeP().Path
+	used := len(left) + len(right) // ascii-safe: no emoji in left/right
+	centerW := m.width - used
+	if centerW < 2 {
+		centerW = 2
+	}
+	runes := []rune(path)
+	maxR := centerW - 2
+	if maxR < 1 {
+		maxR = 1
+	}
+	if len(runes) > maxR {
+		path = "…" + string(runes[len(runes)-maxR:])
+	}
+	center := fmt.Sprintf("  %-*s", centerW-2, path)
+
+	return lipgloss.NewStyle().
+		Background(lipgloss.Color("#0e7c7b")).
+		Foreground(lipgloss.Color("#caf0e4")).
+		Bold(true).
+		Width(m.width).
+		Render(left + center + right)
 }
 
 // renderStatusBar builds the status bar string.
