@@ -191,7 +191,8 @@ func (m *QueueModel) View() string {
 	}
 
 	sb.WriteString("\n")
-	sb.WriteString(m.Theme.PaletteItem.Render("  p=pause/resume  x=cancel  c=clear done  esc=close"))
+	footerStyle := m.Theme.PaletteItem.Copy().Faint(true)
+	sb.WriteString(footerStyle.Render("  p pause/resume · x cancel · c clear done · esc close"))
 
 	content := sb.String()
 

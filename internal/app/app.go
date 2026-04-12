@@ -636,8 +636,18 @@ type connectedMsg struct {
 func (m *Model) connectToHost(msg connect.ConnectMsg) tea.Cmd {
 	if msg.Host != nil {
 		h := *msg.Host
+		// Use form-supplied username/port if non-zero, fall back to SSH config values.
+		username := msg.Username
+		if username == "" {
+			username = h.User
+		}
+		port := msg.Port
+		if port == 0 {
+			port = h.Port
+		}
+		password := msg.Password
 		return func() tea.Msg {
-			prov, err := sftpprov.Connect(h.HostName, h.Port, h.User, h.IdentityFiles)
+			prov, err := sftpprov.Connect(h.HostName, port, username, h.IdentityFiles, password)
 			if err != nil {
 				return connectErrMsg{err: err}
 			}
@@ -646,13 +656,20 @@ func (m *Model) connectToHost(msg connect.ConnectMsg) tea.Cmd {
 	}
 	if msg.Node != nil {
 		node := *msg.Node
-		return func() tea.Msg {
-			username := ""
+		username := msg.Username
+		if username == "" {
 			if u, err := user.Current(); err == nil && u != nil {
 				username = u.Username
 			}
-			identFiles := defaultIdentityFiles()
-			prov, err := sftpprov.Connect(node.DNS, 22, username, identFiles)
+		}
+		port := msg.Port
+		if port == 0 {
+			port = 22
+		}
+		password := msg.Password
+		identFiles := defaultIdentityFiles()
+		return func() tea.Msg {
+			prov, err := sftpprov.Connect(node.DNS, port, username, identFiles, password)
 			if err != nil {
 				return connectErrMsg{err: err}
 			}
@@ -797,45 +814,51 @@ func (m *Model) View() string {
 }
 
 // renderHeader builds the branded header bar (1 row).
+// We concatenate pre-rendered sections directly rather than wrapping in an
+// outer Render() call, which avoids double-rendering ANSI sequences and
+// ensures the teal background is always visible.
 func (m *Model) renderHeader() string {
 	t := m.theme
 
-	// Left: branded title.
-	title := t.HeaderTitle.Render("  PELORUS")
+	// Left section: app title.
+	const titleContent = "  PELORUS  "
+	title := t.HeaderTitle.Render(titleContent)
+	titleW := lipgloss.Width(title)
 
-	// Center: active pane path, dimly styled.
+	// Right section: pane indicator + key hints.
+	paneLabel := " ⬡ left"
+	if m.activePane == 1 {
+		paneLabel = " ⬡ right"
+	}
+	hintsContent := "  ctrl+p palette   g jump   c connect  "
+	paneStr := t.HeaderTitle.Copy().
+		Background(lipgloss.Color(t.HeaderBg)).
+		Foreground(lipgloss.Color("#00ffd0")).
+		Render(paneLabel)
+	hintStr := t.HeaderHint.Render(hintsContent)
+	right := paneStr + hintStr
+	rightW := lipgloss.Width(right)
+
+	// Center section: active pane path, fills remaining width.
+	centerW := m.width - titleW - rightW
+	if centerW < 1 {
+		centerW = 1
+	}
 	ap := m.activeP()
 	centerPath := ap.Path
-	// Truncate if too long.
-	maxPathW := m.width - 40
-	if maxPathW < 10 {
-		maxPathW = 10
+	// Truncate to fit, accounting for padding.
+	maxChars := centerW - 2
+	if maxChars < 1 {
+		maxChars = 1
 	}
-	if len(centerPath) > maxPathW {
-		centerPath = "…" + centerPath[len(centerPath)-maxPathW+1:]
+	runes := []rune(centerPath)
+	if len(runes) > maxChars {
+		centerPath = "…" + string(runes[len(runes)-maxChars+1:])
 	}
-	// Right: active pane indicator + key hints.
-	paneLabel := "⬡ left"
-	if m.activePane == 1 {
-		paneLabel = "⬡ right"
-	}
-	hint := t.HeaderHint.Render("  ctrl+p palette  g jump  c connect")
-	right := t.HeaderTitle.Copy().Foreground(lipgloss.Color("#00a896")).Render(paneLabel) + hint
+	center := t.HeaderPath.Width(centerW).Render(" " + centerPath)
 
-	// Compute widths for the three sections.
-	titleW := lipgloss.Width(title)
-	rightW := lipgloss.Width(right)
-	centerW := m.width - titleW - rightW
-	if centerW < 0 {
-		centerW = 0
-	}
-
-	centerPadded := t.HeaderPath.Width(centerW).Render(centerPath)
-
-	row := lipgloss.JoinHorizontal(lipgloss.Top, title, centerPadded, right)
-
-	// Pad/trim to exact terminal width.
-	return t.Header.Width(m.width).Render(row)
+	// Concatenate directly — each section already carries the header background.
+	return title + center + right
 }
 
 // renderStatusBar builds the status bar string.
@@ -873,55 +896,15 @@ func (m *Model) renderStatusBar() string {
 	return m.theme.StatusBar.Width(m.width).Render(info)
 }
 
-// overlayCenter places an overlay string in the center of the base view.
-// This is a simple approach: split base into lines, inject the overlay lines.
-func overlayCenter(base, overlay string, totalW, _ int) string {
-	overlayLines := strings.Split(overlay, "\n")
-	baseLines := strings.Split(base, "\n")
-
-	overlayH := len(overlayLines)
-	overlayW := 0
-	for _, l := range overlayLines {
-		if lipgloss.Width(l) > overlayW {
-			overlayW = lipgloss.Width(l)
-		}
-	}
-
-	startRow := (len(baseLines) - overlayH) / 2
-	if startRow < 0 {
-		startRow = 0
-	}
-	startCol := (totalW - overlayW) / 2
-	if startCol < 0 {
-		startCol = 0
-	}
-
-	result := make([]string, len(baseLines))
-	copy(result, baseLines)
-
-	for i, ol := range overlayLines {
-		row := startRow + i
-		if row >= len(result) {
-			break
-		}
-		baseLine := result[row]
-		result[row] = overlayLine(baseLine, ol, startCol)
-	}
-
-	return strings.Join(result, "\n")
-}
-
-// overlayLine replaces characters in baseLine starting at col with the overlay line.
-func overlayLine(base, overlay string, col int) string {
-	// Work with runes for correct Unicode handling.
-	baseRunes := []rune(base)
-	overlayRunes := []rune(overlay)
-
-	// Extend base if needed.
-	for len(baseRunes) < col+len(overlayRunes) {
-		baseRunes = append(baseRunes, ' ')
-	}
-
-	copy(baseRunes[col:], overlayRunes)
-	return string(baseRunes)
+// overlayCenter centers an overlay on top of the base view using lipgloss.Place.
+// The surrounding whitespace is tinted to create a "dimmed backdrop" effect —
+// the canonical Charm/lipgloss approach for TUI overlays.
+func overlayCenter(base, overlay string, totalW, totalH int) string {
+	return lipgloss.Place(
+		totalW, totalH,
+		lipgloss.Center, lipgloss.Center,
+		overlay,
+		lipgloss.WithWhitespaceChars(" "),
+		lipgloss.WithWhitespaceForeground(lipgloss.AdaptiveColor{Light: "#dddddd", Dark: "#1a2030"}),
+	)
 }

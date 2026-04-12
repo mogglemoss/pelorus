@@ -30,8 +30,8 @@ type Provider struct {
 }
 
 // Connect establishes an SSH/SFTP connection to the given host.
-// Auth is attempted in order: SSH agent, then each identity file.
-func Connect(host string, port int, user string, identityFiles []string) (*Provider, error) {
+// Auth is attempted in order: SSH agent, password (if non-empty), then each identity file.
+func Connect(host string, port int, user string, identityFiles []string, password string) (*Provider, error) {
 	if port == 0 {
 		port = 22
 	}
@@ -47,7 +47,12 @@ func Connect(host string, port int, user string, identityFiles []string) (*Provi
 		}
 	}
 
-	// 2. Try each identity file.
+	// 2. Try password auth if provided.
+	if password != "" {
+		authMethods = append(authMethods, gossh.Password(password))
+	}
+
+	// 3. Try each identity file.
 	for _, idFile := range identityFiles {
 		data, err := os.ReadFile(idFile)
 		if err != nil {

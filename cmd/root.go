@@ -78,7 +78,7 @@ func run(cmd *cobra.Command, args []string) error {
 	prov := local.New()
 
 	// Set up theme.
-	t := theme.PelorusTheme()
+	t := theme.Get(cfg.Theme.Name)
 
 	// Set up action registry.
 	reg := actions.NewRegistry()

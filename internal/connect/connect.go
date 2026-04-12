@@ -3,6 +3,7 @@ package connect
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -25,11 +26,14 @@ type SSHHost struct {
 	IdentityFiles []string
 }
 
-// ConnectMsg is emitted when the user selects a host to connect to.
+// ConnectMsg is emitted when the user confirms connection details.
 // Exactly one of Host or Node will be non-nil.
 type ConnectMsg struct {
-	Host *SSHHost
-	Node *tsutil.Node
+	Host     *SSHHost
+	Node     *tsutil.Node
+	Username string
+	Password string
+	Port     int
 }
 
 // CloseConnectMsg is emitted when the connect palette is closed without selection.
@@ -37,6 +41,20 @@ type CloseConnectMsg struct{}
 
 // TsNodesMsg carries the result of the async Tailscale node fetch.
 type TsNodesMsg struct{ Nodes []tsutil.Node }
+
+// connectState tracks which screen of the connect overlay is visible.
+type connectState int
+
+const (
+	stateList connectState = iota
+	stateForm
+)
+
+// formField pairs a label with its textinput model.
+type formField struct {
+	label string
+	input textinput.Model
+}
 
 // item is a unified selectable entry in the connect palette.
 type item struct {
@@ -62,6 +80,13 @@ type Model struct {
 	cursor        int
 	active        bool
 	spinner       spinner.Model
+
+	// Form state.
+	state        connectState
+	selectedHost *SSHHost
+	selectedNode *tsutil.Node
+	formFields   []formField // [0]=username [1]=port [2]=password
+	formCursor   int
 }
 
 // ParseSSHConfig reads ~/.ssh/config and returns parsed SSH host entries.
@@ -117,6 +142,9 @@ func (m *Model) Open() tea.Cmd {
 	m.cursor = 0
 	m.tsLoaded = false
 	m.tsNodes = nil
+	m.state = stateList
+	m.selectedHost = nil
+	m.selectedNode = nil
 	m.buildItems()
 	m.active = true
 	return tea.Batch(m.fetchTailscaleNodes(), m.spinner.Tick)
@@ -174,6 +202,92 @@ func (m *Model) applyFilter() {
 	m.cursor = 0
 }
 
+// openForm transitions from list state to form state for the given item.
+func (m *Model) openForm(selected item) {
+	m.state = stateForm
+
+	// Determine pre-fill values.
+	username := ""
+	port := 22
+	if selected.kind == "ssh" {
+		h := selected.ssh
+		m.selectedHost = &h
+		m.selectedNode = nil
+		username = h.User
+		port = h.Port
+	} else {
+		n := selected.ts
+		m.selectedHost = nil
+		m.selectedNode = &n
+		// Username: fall back to OS user.
+		username = osCurrentUser()
+	}
+
+	// Build form fields.
+	userField := textinput.New()
+	userField.Placeholder = "username"
+	userField.SetValue(username)
+	userField.CharLimit = 64
+	userField.Focus()
+
+	portField := textinput.New()
+	portField.Placeholder = "22"
+	portField.SetValue(fmt.Sprintf("%d", port))
+	portField.CharLimit = 6
+
+	passField := textinput.New()
+	passField.Placeholder = "optional"
+	passField.EchoMode = textinput.EchoPassword
+	passField.CharLimit = 256
+
+	m.formFields = []formField{
+		{label: "Username", input: userField},
+		{label: "Port    ", input: portField},
+		{label: "Password", input: passField},
+	}
+	m.formCursor = 0
+}
+
+// focusFormField moves focus to the given field index.
+func (m *Model) focusFormField(idx int) {
+	for i := range m.formFields {
+		if i == idx {
+			m.formFields[i].input.Focus()
+		} else {
+			m.formFields[i].input.Blur()
+		}
+	}
+	m.formCursor = idx
+}
+
+// submitForm emits a ConnectMsg with form values.
+func (m *Model) submitForm() tea.Cmd {
+	username := m.formFields[0].input.Value()
+	portStr := m.formFields[1].input.Value()
+	password := m.formFields[2].input.Value()
+
+	port := 22
+	if p, err := fmt.Sscanf(portStr, "%d", &port); p != 1 || err != nil {
+		port = 22
+	}
+
+	m.active = false
+
+	if m.selectedHost != nil {
+		h := *m.selectedHost
+		return func() tea.Msg {
+			return ConnectMsg{Host: &h, Username: username, Password: password, Port: port}
+		}
+	}
+	if m.selectedNode != nil {
+		n := *m.selectedNode
+		return func() tea.Msg {
+			return ConnectMsg{Node: &n, Username: username, Password: password, Port: port}
+		}
+	}
+	return func() tea.Msg { return CloseConnectMsg{} }
+}
+
 // Update handles key events and async messages while the overlay is active.
 func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	// Handle TsNodesMsg even if not active (it arrives async).
@@ -198,6 +312,15 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Route to the appropriate state handler.
+	if m.state == stateForm {
+		return m.updateForm(msg)
+	}
+	return m.updateList(msg)
+}
+
+// updateList handles key events in the host list state.
+func (m *Model) updateList(msg tea.Msg) (*Model, tea.Cmd) {
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
@@ -211,13 +334,8 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	case tea.KeyEnter:
 		if len(m.filteredItems) > 0 && m.cursor < len(m.filteredItems) {
 			selected := m.filteredItems[m.cursor]
-			m.active = false
-			if selected.kind == "ts" {
-				n := selected.ts
-				return m, func() tea.Msg { return ConnectMsg{Node: &n} }
-			}
-			h := selected.ssh
-			return m, func() tea.Msg { return ConnectMsg{Host: &h} }
+			m.openForm(selected)
+			return m, nil
 		}
 		m.active = false
 		return m, func() tea.Msg { return CloseConnectMsg{} }
@@ -274,8 +392,62 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	}
 }
 
+// updateForm handles key events in the connection detail form state.
+func (m *Model) updateForm(msg tea.Msg) (*Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+
+	switch keyMsg.Type {
+	case tea.KeyEsc:
+		// Go back to list state.
+		m.state = stateList
+		m.selectedHost = nil
+		m.selectedNode = nil
+		return m, nil
+
+	case tea.KeyEnter:
+		// Submit the form.
+		cmd := m.submitForm()
+		return m, cmd
+
+	case tea.KeyTab, tea.KeyDown:
+		// Move to next field.
+		next := (m.formCursor + 1) % len(m.formFields)
+		m.focusFormField(next)
+		return m, nil
+
+	case tea.KeyShiftTab, tea.KeyUp:
+		// Move to previous field.
+		prev := (m.formCursor - 1 + len(m.formFields)) % len(m.formFields)
+		m.focusFormField(prev)
+		return m, nil
+
+	default:
+		// Route keystrokes to the focused field.
+		var cmds []tea.Cmd
+		for i := range m.formFields {
+			var cmd tea.Cmd
+			m.formFields[i].input, cmd = m.formFields[i].input.Update(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		return m, tea.Batch(cmds...)
+	}
+}
+
 // View renders the connect palette overlay.
 func (m *Model) View() string {
+	if m.state == stateForm {
+		return m.viewForm()
+	}
+	return m.viewList()
+}
+
+// viewList renders the host selection list.
+func (m *Model) viewList() string {
 	boxW := 64
 	if m.Width > 0 && boxW > m.Width-4 {
 		boxW = m.Width - 4
@@ -315,7 +487,7 @@ func (m *Model) View() string {
 
 	// SSH section.
 	if len(m.hosts) > 0 || len(sshItems) > 0 {
-		sectionHdr := m.Theme.PaletteItem.Width(boxW-4).Render("SSH Config Hosts")
+		sectionHdr := m.Theme.PaletteItem.Width(boxW - 4).Render("SSH Config Hosts")
 		sb.WriteString(sectionHdr)
 		sb.WriteString("\n")
 		linesUsed++
@@ -354,7 +526,7 @@ func (m *Model) View() string {
 	if showTSSection || showTSLoading {
 		sb.WriteString("\n")
 
-		sectionHdr := m.Theme.PaletteItem.Width(boxW-4).Render("Tailscale Nodes")
+		sectionHdr := m.Theme.PaletteItem.Width(boxW - 4).Render("Tailscale Nodes")
 		sb.WriteString(sectionHdr)
 		sb.WriteString("\n")
 		linesUsed += 2
@@ -415,6 +587,62 @@ func (m *Model) View() string {
 		sb.WriteString("\n")
 	}
 
+	// Footer hints.
+	sb.WriteString("\n")
+	footerStyle := m.Theme.PaletteItem.Copy().Faint(true)
+	sb.WriteString(footerStyle.Width(boxW - 4).Render("  enter select · esc close"))
+
+	content := strings.TrimRight(sb.String(), "\n")
+	return m.Theme.PaletteBox.Width(boxW).Render(content)
+}
+
+// viewForm renders the connection detail form.
+func (m *Model) viewForm() string {
+	boxW := 64
+	if m.Width > 0 && boxW > m.Width-4 {
+		boxW = m.Width - 4
+	}
+
+	var sb strings.Builder
+
+	// Header.
+	header := m.Theme.PaletteSelected.Width(boxW - 4).Render("Connection Details")
+	sb.WriteString(header)
+	sb.WriteString("\n")
+	sb.WriteString(strings.Repeat("─", boxW-4))
+	sb.WriteString("\n")
+
+	// Host info line.
+	hostInfo := ""
+	if m.selectedHost != nil {
+		hostInfo = fmt.Sprintf("%s (%s)", m.selectedHost.Alias, m.selectedHost.HostName)
+	} else if m.selectedNode != nil {
+		hostInfo = fmt.Sprintf("%s (Tailscale)", m.selectedNode.Name)
+	}
+	if hostInfo != "" {
+		hostLine := m.Theme.PaletteItem.Width(boxW - 4).Render("  Host:     " + hostInfo)
+		sb.WriteString(hostLine)
+		sb.WriteString("\n\n")
+	}
+
+	// Form fields.
+	for i, f := range m.formFields {
+		var style lipgloss.Style
+		if i == m.formCursor {
+			style = m.Theme.PaletteSelected.Width(boxW - 4)
+		} else {
+			style = m.Theme.PaletteItem.Width(boxW - 4)
+		}
+		line := fmt.Sprintf("  %s: %s", f.label, f.input.View())
+		sb.WriteString(style.Render(line))
+		sb.WriteString("\n")
+	}
+
+	// Footer hints.
+	sb.WriteString("\n")
+	footerStyle := m.Theme.PaletteItem.Copy().Faint(true)
+	sb.WriteString(footerStyle.Width(boxW - 4).Render("  tab next · enter connect · esc back"))
+
 	content := strings.TrimRight(sb.String(), "\n")
 	return m.Theme.PaletteBox.Width(boxW).Render(content)
 }
@@ -433,4 +661,15 @@ func onlineLabel(online bool) string {
 		return "online"
 	}
 	return "offline"
+}
+
+// osCurrentUser returns the current OS username by checking environment variables.
+func osCurrentUser() string {
+	if u := os.Getenv("USER"); u != "" {
+		return u
+	}
+	if u := os.Getenv("LOGNAME"); u != "" {
+		return u
+	}
+	return ""
 }

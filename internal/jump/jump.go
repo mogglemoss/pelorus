@@ -362,6 +362,11 @@ func (m *Model) View() string {
 		sb.WriteString("\n")
 	}
 
+	// Footer hint line.
+	sb.WriteString("\n")
+	footerStyle := m.Theme.PaletteItem.Copy().Faint(true)
+	sb.WriteString(footerStyle.Width(boxW - 4).Render("  enter jump · B bookmark · esc close"))
+
 	content := strings.TrimRight(sb.String(), "\n")
 	return m.Theme.PaletteBox.Width(boxW).Render(content)
 }
