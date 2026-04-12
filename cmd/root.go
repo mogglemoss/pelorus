@@ -18,8 +18,9 @@ import (
 var cfgFile string
 
 var rootCmd = &cobra.Command{
-	Use:   "pelorus [path]",
-	Short: "Pelorus — an opinionated TUI file manager",
+	Use:     "pelorus [path]",
+	Short:   "Pelorus — an opinionated TUI file manager",
+	Version: "1.0.0",
 	Long: `Pelorus is a dual-pane TUI file manager with a retrofuture subaquatic aesthetic.
 
 Usage:
@@ -48,6 +49,32 @@ func run(cmd *cobra.Command, args []string) error {
 		startDir = args[0]
 	}
 
+	// Load config first so we can read start_dir from it.
+	var err error
+	var cfg *config.Config
+	if cfgFile != "" {
+		cfg, err = config.LoadFrom(cfgFile)
+	} else {
+		cfg, err = config.Load()
+	}
+	if err != nil {
+		cfg = config.Defaults()
+	}
+
+	// If no path argument was given, apply the config start_dir.
+	if len(args) == 0 && cfg.General.StartDir != "" && cfg.General.StartDir != "." {
+		startDir = cfg.General.StartDir
+	}
+
+	// "last" restores the previous session directory.
+	if startDir == "last" {
+		if last, lerr := config.LoadLastDir(); lerr == nil {
+			startDir = last
+		} else {
+			startDir = "."
+		}
+	}
+
 	absStart, err := filepath.Abs(startDir)
 	if err != nil {
 		return fmt.Errorf("cannot resolve path %q: %w", startDir, err)
@@ -58,20 +85,7 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("path %q does not exist: %w", absStart, err)
 	}
 	if !info.IsDir() {
-		// If a file is given, use its parent directory.
 		absStart = filepath.Dir(absStart)
-	}
-
-	// Load config — use alternate path if --config was supplied.
-	var cfg *config.Config
-	if cfgFile != "" {
-		cfg, err = config.LoadFrom(cfgFile)
-	} else {
-		cfg, err = config.Load()
-	}
-	if err != nil {
-		// Non-fatal; use defaults.
-		cfg = config.Defaults()
 	}
 
 	// Set up provider.
@@ -96,8 +110,15 @@ func run(cmd *cobra.Command, args []string) error {
 		tea.WithMouseCellMotion(),
 	)
 
-	if _, err := p.Run(); err != nil {
-		return fmt.Errorf("pelorus: %w", err)
+	finalModel, runErr := p.Run()
+	if runErr != nil {
+		return fmt.Errorf("pelorus: %w", runErr)
 	}
+
+	// Save the last-used directory for "start_dir = last".
+	if m, ok := finalModel.(*app.Model); ok {
+		_ = config.SaveLastDir(m.ActivePath())
+	}
+
 	return nil
 }

@@ -28,6 +28,9 @@ type Theme struct {
 	HeaderPath  lipgloss.Style
 	HeaderHint  lipgloss.Style
 
+	// MarkedEntry is the style for items marked for batch operations.
+	MarkedEntry lipgloss.Style
+
 	// The raw background color used for the header bar — used when
 	// concatenating sections without a wrapper Render call.
 	HeaderBg string
@@ -130,6 +133,10 @@ func PelorusTheme() Theme {
 			Foreground(lipgloss.Color(colorAccentDim)).
 			Bold(true),
 
+		MarkedEntry: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#ffd700")).
+			Bold(true),
+
 		Divider: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(colorBorderInactive)),
 
@@ -213,6 +220,10 @@ func GruvboxTheme() Theme {
 
 		PathHeader: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#d79921")).
+			Bold(true),
+
+		MarkedEntry: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#fabd2f")).
 			Bold(true),
 
 		Divider: lipgloss.NewStyle().
@@ -300,6 +311,10 @@ func NordTheme() Theme {
 			Foreground(lipgloss.Color("#81a1c1")).
 			Bold(true),
 
+		MarkedEntry: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#ebcb8b")).
+			Bold(true),
+
 		Divider: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#434c5e")),
 
@@ -383,6 +398,10 @@ func LightTheme() Theme {
 
 		PathHeader: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#0e7c7b")).
+			Bold(true),
+
+		MarkedEntry: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#e65100")).
 			Bold(true),
 
 		Divider: lipgloss.NewStyle().

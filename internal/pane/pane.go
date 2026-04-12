@@ -51,6 +51,9 @@ type Model struct {
 	// Archive navigation stack.
 	archiveStack []archiveFrame
 
+	// Multi-select: set of selected paths.
+	MultiSel map[string]bool
+
 	// Fuzzy filter state
 	FilterStr string
 
@@ -465,6 +468,46 @@ func (m *Model) GoHome() {
 	m.reload()
 }
 
+// ToggleSelection marks or unmarks the cursor item for batch operations.
+func (m *Model) ToggleSelection() {
+	sel := m.Selected()
+	if sel == nil {
+		return
+	}
+	if m.MultiSel == nil {
+		m.MultiSel = make(map[string]bool)
+	}
+	if m.MultiSel[sel.Path] {
+		delete(m.MultiSel, sel.Path)
+	} else {
+		m.MultiSel[sel.Path] = true
+	}
+}
+
+// SelectedEntries returns the multi-selected entries, or the cursor entry if
+// nothing is explicitly marked.
+func (m *Model) SelectedEntries() []fileinfo.FileInfo {
+	if len(m.MultiSel) == 0 {
+		sel := m.Selected()
+		if sel == nil {
+			return nil
+		}
+		return []fileinfo.FileInfo{*sel}
+	}
+	var out []fileinfo.FileInfo
+	for _, fi := range m.Filtered {
+		if m.MultiSel[fi.Path] {
+			out = append(out, fi)
+		}
+	}
+	return out
+}
+
+// ClearSelection clears all multi-select marks.
+func (m *Model) ClearSelection() {
+	m.MultiSel = nil
+}
+
 // ApplyFilterPublic is an exported wrapper around applyFilter for use by app.
 func (m *Model) ApplyFilterPublic() {
 	m.applyFilter()
@@ -582,26 +625,41 @@ func (m *Model) View() string {
 
 func (m *Model) renderEntry(fi fileinfo.FileInfo, selected bool, width int) string {
 	icon := fileinfo.Icon(fi)
+	isMarked := m.MultiSel[fi.Path]
+
+	// Prefix marked items with a visible indicator.
+	marker := "  "
+	if isMarked {
+		marker = "✓ "
+	}
 
 	name := fi.Name
 	if fi.IsSymlink && fi.SymlinkTarget != "" {
 		name = fi.Name + " -> " + fi.SymlinkTarget
 	}
 
-	maxName := width - 3 // icon + space + name
+	maxName := width - 5 // marker(2) + icon(1) + space(1) + name
+	if maxName < 1 {
+		maxName = 1
+	}
 	if len(name) > maxName {
 		name = name[:maxName-1] + "…"
 	}
 
-	line := fmt.Sprintf("%s %s", icon, name)
+	line := fmt.Sprintf("%s%s %s", marker, icon, name)
 	// Pad to full width.
 	if len(line) < width {
 		line += strings.Repeat(" ", width-len(line))
 	}
 
 	var style lipgloss.Style
-	if selected {
+	if selected && isMarked {
+		// Cursor on a marked item — show cursor style with marker color.
 		style = m.Theme.Cursor
+	} else if selected {
+		style = m.Theme.Cursor
+	} else if isMarked {
+		style = m.Theme.MarkedEntry
 	} else if fi.IsSymlink {
 		style = m.Theme.SymlinkName
 	} else if fi.IsDir {

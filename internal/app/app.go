@@ -59,6 +59,9 @@ type Model struct {
 	queueOpen     bool
 	tickerRunning bool
 
+	// multiDeletePending holds items awaiting confirmation for batch delete.
+	multiDeletePending []fileinfo.FileInfo
+
 	store *jump.Store
 
 	registry *actions.Registry
@@ -204,8 +207,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case actions.ToggleSelectMsg:
+		ap := m.activeP()
+		ap.ToggleSelection()
+		ap.CursorDown()
+		return m, m.updatePreview()
+
 	case actions.DeleteSelectedMsg:
 		ap := m.activeP()
+		entries := ap.SelectedEntries()
+		if len(entries) > 1 {
+			// Batch delete: show confirmation at app level.
+			m.multiDeletePending = entries
+			m.statusMsg = fmt.Sprintf("Delete %d items? (y/n)", len(entries))
+			return m, nil
+		}
 		cmd := ap.StartDelete(m.cfg.General.ConfirmDelete)
 		return m, cmd
 
@@ -438,6 +454,30 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	key := msg.String()
 
+	// Multi-delete confirmation prompt.
+	if len(m.multiDeletePending) > 0 {
+		switch key {
+		case "y", "Y", "enter":
+			entries := m.multiDeletePending
+			m.multiDeletePending = nil
+			m.activeP().ClearSelection()
+			var cmds []tea.Cmd
+			for _, fi := range entries {
+				job := m.queue.Add(ops.KindDelete, fi.Path, "")
+				job.Status = ops.StatusRunning
+				job.StartTime = time.Now()
+				cmds = append(cmds, ops.StartJob(job, m.activeP().Provider, m.activeP().Provider))
+			}
+			m.statusMsg = fmt.Sprintf("Deleting %d items…", len(entries))
+			cmds = append(cmds, m.startProgressTicker())
+			return m, tea.Batch(cmds...)
+		default:
+			m.multiDeletePending = nil
+			m.statusMsg = "Cancelled"
+			return m, nil
+		}
+	}
+
 	// Preview scroll keys — handled before action dispatch.
 	if m.showPreview {
 		switch key {
@@ -581,36 +621,50 @@ func (m *Model) buildAppState() actions.AppState {
 
 func (m *Model) enqueueCopy() tea.Cmd {
 	ap := m.activeP()
-	sel := ap.Selected()
-	if sel == nil {
+	entries := ap.SelectedEntries()
+	if len(entries) == 0 {
 		return nil
 	}
-	dst := filepath.Join(m.inactiveP().Path, sel.Name)
-	job := m.queue.Add(ops.KindCopy, sel.Path, dst)
-	job.Status = ops.StatusRunning
-	job.StartTime = time.Now()
-	m.statusMsg = fmt.Sprintf("Copying %q…", sel.Name)
-	return tea.Batch(
-		ops.StartJob(job, ap.Provider, m.inactiveP().Provider),
-		m.startProgressTicker(),
-	)
+	var cmds []tea.Cmd
+	for _, sel := range entries {
+		dst := filepath.Join(m.inactiveP().Path, sel.Name)
+		job := m.queue.Add(ops.KindCopy, sel.Path, dst)
+		job.Status = ops.StatusRunning
+		job.StartTime = time.Now()
+		cmds = append(cmds, ops.StartJob(job, ap.Provider, m.inactiveP().Provider))
+	}
+	if len(entries) == 1 {
+		m.statusMsg = fmt.Sprintf("Copying %q…", entries[0].Name)
+	} else {
+		m.statusMsg = fmt.Sprintf("Copying %d items…", len(entries))
+	}
+	ap.ClearSelection()
+	cmds = append(cmds, m.startProgressTicker())
+	return tea.Batch(cmds...)
 }
 
 func (m *Model) enqueueMove() tea.Cmd {
 	ap := m.activeP()
-	sel := ap.Selected()
-	if sel == nil {
+	entries := ap.SelectedEntries()
+	if len(entries) == 0 {
 		return nil
 	}
-	dst := filepath.Join(m.inactiveP().Path, sel.Name)
-	job := m.queue.Add(ops.KindMove, sel.Path, dst)
-	job.Status = ops.StatusRunning
-	job.StartTime = time.Now()
-	m.statusMsg = fmt.Sprintf("Moving %q…", sel.Name)
-	return tea.Batch(
-		ops.StartJob(job, ap.Provider, m.inactiveP().Provider),
-		m.startProgressTicker(),
-	)
+	var cmds []tea.Cmd
+	for _, sel := range entries {
+		dst := filepath.Join(m.inactiveP().Path, sel.Name)
+		job := m.queue.Add(ops.KindMove, sel.Path, dst)
+		job.Status = ops.StatusRunning
+		job.StartTime = time.Now()
+		cmds = append(cmds, ops.StartJob(job, ap.Provider, m.inactiveP().Provider))
+	}
+	if len(entries) == 1 {
+		m.statusMsg = fmt.Sprintf("Moving %q…", entries[0].Name)
+	} else {
+		m.statusMsg = fmt.Sprintf("Moving %d items…", len(entries))
+	}
+	ap.ClearSelection()
+	cmds = append(cmds, m.startProgressTicker())
+	return tea.Batch(cmds...)
 }
 
 func (m *Model) enqueueDelete(path string, prov provider.Provider) tea.Cmd {
@@ -708,6 +762,12 @@ func defaultIdentityFiles() []string {
 	return found
 }
 
+
+// ActivePath returns the path of the active pane. Used by the caller to save
+// the last-used directory to the session file on quit.
+func (m *Model) ActivePath() string {
+	return m.activeP().Path
+}
 
 // closeAllSFTP closes all open SFTP provider connections.
 func (m *Model) closeAllSFTP() {
@@ -906,6 +966,11 @@ func (m *Model) renderStatusBar() string {
 			sel.Mode.String(),
 			fileinfo.HumanSize(sel.Size),
 		)
+	}
+
+	// Show multi-select count.
+	if n := len(ap.MultiSel); n > 0 {
+		info += fmt.Sprintf(" | %d selected", n)
 	}
 
 	if m.statusMsg != "" {

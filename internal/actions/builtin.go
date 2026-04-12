@@ -64,6 +64,9 @@ type OpenConnectMsg struct{}
 // OpenHelpMsg tells the app to open the keybinding help overlay.
 type OpenHelpMsg struct{}
 
+// ToggleSelectMsg tells the app to mark/unmark the cursor item for batch ops.
+type ToggleSelectMsg struct{}
+
 // RegisterBuiltins registers the standard set of built-in actions.
 func RegisterBuiltins(r *Registry) {
 	builtins := []Action{
@@ -307,6 +310,17 @@ func RegisterBuiltins(r *Registry) {
 			Keybinding:  "?",
 			Handler: func(_ AppState) tea.Cmd {
 				return func() tea.Msg { return OpenHelpMsg{} }
+			},
+		},
+		{
+			ID:          "file.select",
+			Name:        "Toggle Selection",
+			Description: "Mark or unmark item for batch operations",
+			Category:    "File",
+			Context:     CtxAlways,
+			Keybinding:  " ",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return ToggleSelectMsg{} }
 			},
 		},
 	}

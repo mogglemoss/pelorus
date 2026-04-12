@@ -1,6 +1,7 @@
 package palette
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -18,6 +19,58 @@ type ClosePaletteMsg struct{}
 // RunActionMsg is sent when an action is selected from the palette.
 type RunActionMsg struct {
 	ActionID string
+}
+
+// categoryOrder defines the display order for known categories.
+var categoryOrder = []string{
+	"Navigation", "File", "View", "App", "Custom",
+}
+
+func categoryPriority(cat string) int {
+	for i, c := range categoryOrder {
+		if strings.EqualFold(c, cat) {
+			return i
+		}
+	}
+	return len(categoryOrder) // unknown categories go last
+}
+
+// sortActions sorts actions by category priority then name.
+func sortActions(acts []actions.Action) {
+	sort.SliceStable(acts, func(i, j int) bool {
+		pi := categoryPriority(acts[i].Category)
+		pj := categoryPriority(acts[j].Category)
+		if pi != pj {
+			return pi < pj
+		}
+		return acts[i].Name < acts[j].Name
+	})
+}
+
+// displayItem is either a category header or an action row.
+type displayItem struct {
+	isHeader  bool
+	category  string
+	action    actions.Action
+	actionIdx int // index in Filtered (only valid when !isHeader)
+}
+
+// buildDisplayItems groups actions by category, inserting header rows.
+func buildDisplayItems(acts []actions.Action) []displayItem {
+	var items []displayItem
+	prevCat := ""
+	for i, a := range acts {
+		cat := a.Category
+		if cat == "" {
+			cat = "General"
+		}
+		if cat != prevCat {
+			items = append(items, displayItem{isHeader: true, category: cat})
+			prevCat = cat
+		}
+		items = append(items, displayItem{action: a, actionIdx: i})
+	}
+	return items
 }
 
 // Model is the Bubbletea model for the command palette overlay.
@@ -39,6 +92,7 @@ func New(reg *actions.Registry, t *theme.Theme) *Model {
 	ti.CharLimit = 128
 
 	allActions := reg.All()
+	sortActions(allActions)
 
 	return &Model{
 		Input:    ti,
@@ -105,7 +159,6 @@ func (m *Model) applyFilter() {
 		return
 	}
 
-	// Build strings to search: "Name - Description"
 	targets := make([]string, len(m.Actions))
 	for i, a := range m.Actions {
 		targets[i] = a.Name + " " + a.Description + " " + a.Category
@@ -120,65 +173,139 @@ func (m *Model) applyFilter() {
 }
 
 // View renders the palette as a centered overlay string.
-// The caller must position/overlay this onto the main view.
 func (m *Model) View() string {
-	boxW := 60
+	boxW := 64
 	if m.Width > 0 && boxW > m.Width-4 {
 		boxW = m.Width - 4
 	}
-	maxItems := 10
+	innerW := boxW - 4
+	maxDisplayLines := 14
 
 	var sb strings.Builder
 
 	// Input field.
-	inputLine := m.Theme.PaletteInput.Width(boxW - 4).Render(m.Input.View())
+	inputLine := m.Theme.PaletteInput.Width(innerW).Render(m.Input.View())
 	sb.WriteString(inputLine)
 	sb.WriteString("\n")
-	sb.WriteString(strings.Repeat("─", boxW-4))
+	sb.WriteString(strings.Repeat("─", innerW))
 	sb.WriteString("\n")
 
-	// Items.
-	shown := m.Filtered
+	query := m.Input.Value()
+
+	if query == "" {
+		m.renderGrouped(&sb, innerW, maxDisplayLines)
+	} else {
+		m.renderFlat(&sb, innerW, maxDisplayLines)
+	}
+
+	// Footer.
+	sb.WriteString("\n")
+	footerStyle := m.Theme.PaletteItem.Copy().Faint(true)
+	sb.WriteString(footerStyle.Width(innerW).Render("  ↑↓ navigate · enter select · esc close"))
+
+	content := strings.TrimRight(sb.String(), "\n")
+	return m.Theme.PaletteBox.Width(boxW).Render(content)
+}
+
+// renderGrouped renders actions grouped by category with headers.
+func (m *Model) renderGrouped(sb *strings.Builder, innerW, maxLines int) {
+	if len(m.Filtered) == 0 {
+		empty := m.Theme.PaletteItem.Width(innerW).Render("No actions found")
+		sb.WriteString(empty)
+		sb.WriteString("\n")
+		return
+	}
+
+	displayItems := buildDisplayItems(m.Filtered)
+
+	// Find the display-line index of the cursor action.
+	cursorLine := 0
+	for i, di := range displayItems {
+		if !di.isHeader && di.actionIdx == m.Cursor {
+			cursorLine = i
+			break
+		}
+	}
+
+	// Compute scroll window: keep cursor visible within maxLines.
+	winStart := 0
+	if cursorLine >= maxLines {
+		winStart = cursorLine - maxLines + 1
+	}
+	winEnd := winStart + maxLines
+	if winEnd > len(displayItems) {
+		winEnd = len(displayItems)
+	}
+
+	headerStyle := m.Theme.PaletteItem.Copy().
+		Foreground(lipgloss.Color("#00a896")).
+		Bold(true).
+		Width(innerW)
+
+	for _, di := range displayItems[winStart:winEnd] {
+		if di.isHeader {
+			sb.WriteString(headerStyle.Render("  " + strings.ToUpper(di.category)))
+		} else {
+			label := formatActionLabel(di.action, innerW)
+			var style lipgloss.Style
+			if di.actionIdx == m.Cursor {
+				style = m.Theme.PaletteSelected.Width(innerW)
+			} else {
+				style = m.Theme.PaletteItem.Width(innerW)
+			}
+			sb.WriteString(style.Render(label))
+		}
+		sb.WriteString("\n")
+	}
+}
+
+// renderFlat renders actions as a flat list (used when a query is active).
+func (m *Model) renderFlat(sb *strings.Builder, innerW, maxItems int) {
+	if len(m.Filtered) == 0 {
+		empty := m.Theme.PaletteItem.Width(innerW).Render("No actions found")
+		sb.WriteString(empty)
+		sb.WriteString("\n")
+		return
+	}
+
 	start := 0
 	if m.Cursor >= maxItems {
 		start = m.Cursor - maxItems + 1
 	}
 	end := start + maxItems
-	if end > len(shown) {
-		end = len(shown)
+	if end > len(m.Filtered) {
+		end = len(m.Filtered)
 	}
 
 	for i := start; i < end; i++ {
-		a := shown[i]
-		label := a.Name
-		if a.Keybinding != "" {
-			label = a.Name + " [" + a.Keybinding + "]"
-		}
-		if len(label) > boxW-6 {
-			label = label[:boxW-9] + "…"
-		}
-
+		a := m.Filtered[i]
+		label := formatActionLabel(a, innerW)
 		var style lipgloss.Style
 		if i == m.Cursor {
-			style = m.Theme.PaletteSelected.Width(boxW - 4)
+			style = m.Theme.PaletteSelected.Width(innerW)
 		} else {
-			style = m.Theme.PaletteItem.Width(boxW - 4)
+			style = m.Theme.PaletteItem.Width(innerW)
 		}
 		sb.WriteString(style.Render(label))
 		sb.WriteString("\n")
 	}
+}
 
-	if len(m.Filtered) == 0 {
-		empty := m.Theme.PaletteItem.Width(boxW - 4).Render("No actions found")
-		sb.WriteString(empty)
-		sb.WriteString("\n")
+// formatActionLabel builds the display label for an action row.
+func formatActionLabel(a actions.Action, maxW int) string {
+	kb := a.Keybinding
+	if kb == " " {
+		kb = "space"
 	}
 
-	// Footer hint line.
-	sb.WriteString("\n")
-	footerStyle := m.Theme.PaletteItem.Copy().Faint(true)
-	sb.WriteString(footerStyle.Width(boxW - 4).Render("  enter select · esc close"))
-
-	content := strings.TrimRight(sb.String(), "\n")
-	return m.Theme.PaletteBox.Width(boxW).Render(content)
+	var label string
+	if kb != "" {
+		label = "  " + a.Name + " [" + kb + "]"
+	} else {
+		label = "  " + a.Name
+	}
+	if lipgloss.Width(label) > maxW {
+		label = label[:maxW-1] + "…"
+	}
+	return label
 }
