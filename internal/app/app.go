@@ -136,7 +136,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.helpModel.Width = msg.Width
 		m.helpModel.Height = msg.Height
-		return m, nil
+		return m, m.updatePreview()
 
 	// --- Error display ---
 	case pane.ErrMsg:
@@ -516,11 +516,16 @@ func (m *Model) handleNav(dir string) tea.Cmd {
 		ap.CursorDown()
 	case "enter":
 		prevPath := ap.Path
-		ap.EnterSelected()
+		enterCmd := ap.EnterSelected() // capture cmd (e.g. OpenFileMsg for regular files)
 		if ap.Path != prevPath {
 			m.store.Visit(ap.Path)
 			_ = m.store.Save()
 		}
+		previewCmd := m.updatePreview()
+		if enterCmd != nil {
+			return tea.Batch(enterCmd, previewCmd)
+		}
+		return previewCmd
 	case "parent":
 		prevPath := ap.Path
 		ap.GoParent()
@@ -795,7 +800,11 @@ func (m *Model) View() string {
 	leftView := m.panes[0].View()
 	rightView := m.panes[1].View()
 
-	divider := m.theme.Divider.Render(strings.Repeat("│\n", m.panes[0].Height))
+	// Build divider with exactly paneH rows (no trailing newline so JoinHorizontal
+	// sees the same row count as the pane views and does not add a phantom extra row).
+	divLines := strings.Repeat("│\n", m.panes[0].Height)
+	divLines = divLines[:len(divLines)-1] // strip trailing \n → exactly paneH rows
+	divider := m.theme.Divider.Render(divLines)
 
 	var panesRow string
 	if m.showPreview {
