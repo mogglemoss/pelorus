@@ -11,7 +11,7 @@ func Defaults() *Config {
 		},
 		Layout: LayoutConfig{
 			Ratio:        "50:50",
-			ShowPreview:  false,
+			ShowPreview:  true,
 			PreviewWidth: 40,
 		},
 		Theme: ThemeConfig{
@@ -47,7 +47,7 @@ editor = ""
 ratio = "1:1"
 
 # Show the preview panel on startup.
-show_preview = false
+show_preview = true
 
 # Width of the preview panel as a percentage of total terminal width.
 preview_width = 40

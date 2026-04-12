@@ -340,9 +340,13 @@ func (m *Model) EnterSelected() tea.Cmd {
 		return nil
 	}
 
-	// Non-dir, non-archive: no-op for now.
-	return nil
+	// Non-dir, non-archive: signal the app to open in editor.
+	return func() tea.Msg { return OpenFileMsg{Path: sel.Path} }
 }
+
+// OpenFileMsg is emitted when the user presses enter on a regular file.
+// The app opens it in the configured editor.
+type OpenFileMsg struct{ Path string }
 
 // isArchivePath reports whether a filename has a supported archive extension.
 func isArchivePath(name string) bool {

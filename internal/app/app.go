@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strings"
@@ -176,6 +177,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case preview.ContentReadyMsg:
 		m.previewModel.SetContent(msg)
 		return m, nil
+
+	case pane.OpenFileMsg:
+		return m, m.openInEditor(msg.Path)
 
 	// --- Action messages ---
 	case actions.NavMsg:
@@ -710,6 +714,27 @@ func (m *Model) closeAllSFTP() {
 // Close shuts down all open SFTP connections. Call before quitting.
 func (m *Model) Close() {
 	m.closeAllSFTP()
+}
+
+// openInEditor opens the given path in the configured editor.
+// Uses cfg.General.Editor, falling back to $EDITOR then $VISUAL then vi.
+func (m *Model) openInEditor(path string) tea.Cmd {
+	editor := m.cfg.General.Editor
+	if editor == "" {
+		editor = os.Getenv("EDITOR")
+	}
+	if editor == "" {
+		editor = os.Getenv("VISUAL")
+	}
+	if editor == "" {
+		editor = "vi"
+	}
+	return tea.ExecProcess(exec.Command(editor, path), func(err error) tea.Msg {
+		if err != nil {
+			return pane.ErrMsg{Err: fmt.Errorf("editor: %w", err)}
+		}
+		return nil
+	})
 }
 
 // layoutPanes sets width/height on panes (and preview) based on terminal size.
