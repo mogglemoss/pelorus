@@ -16,15 +16,6 @@ import (
 // CloseHelpMsg is emitted when the help overlay is dismissed.
 type CloseHelpMsg struct{}
 
-// Color constants for help rendering.
-const (
-	colorAccent  = "#00ffd0"
-	colorKeyDim  = "#4a6070"
-	colorText    = "#c8d8e8"
-	colorBg      = "#0d1520"
-	colorBorder  = "#00ffd0"
-	colorFooter  = "#4a6070"
-)
 
 // Model is the Bubbletea model for the keybinding help overlay.
 type Model struct {
@@ -84,10 +75,12 @@ func (m *Model) buildContent() string {
 	}
 	sort.Strings(categories)
 
-	catStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Bold(true)
-	sepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorKeyDim))
-	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorKeyDim))
-	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colorText))
+	t := m.Theme
+	bg := t.PaletteBox.GetBackground()
+	catStyle := t.SectionLabel.Copy()
+	sepStyle := lipgloss.NewStyle().Background(bg).Foreground(t.StatusBarMuted.GetForeground())
+	keyStyle := t.FooterKey.Copy().Background(bg)
+	nameStyle := t.PaletteItem.Copy()
 
 	var sb strings.Builder
 
@@ -151,25 +144,21 @@ func (m *Model) View() string {
 		return ""
 	}
 
-	// Styles.
-	boxStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(colorBorder)).
-		Background(lipgloss.Color(colorBg)).
-		Padding(0, 1)
+	// Styles — all derived from the active theme.
+	t := m.Theme
+	bg := t.PaletteBox.GetBackground()
+	baseBg := lipgloss.NewStyle().Background(bg)
+	_ = baseBg
 
-	titleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colorAccent)).
-		Bold(true).
-		Background(lipgloss.Color(colorBg))
+	boxStyle := t.PaletteBox.Copy().Padding(0, 1)
 
-	footerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colorFooter)).
-		Background(lipgloss.Color(colorBg))
+	titleStyle := t.HeaderTitle.Copy().Background(bg)
+
+	footerStyle := t.StatusBarMuted.Copy().Background(bg)
 
 	sepStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colorKeyDim)).
-		Background(lipgloss.Color(colorBg))
+		Foreground(t.StatusBarMuted.GetForeground()).
+		Background(bg)
 
 	innerW := m.Width - 4 // border (2) + padding (2)
 	if innerW < 10 {

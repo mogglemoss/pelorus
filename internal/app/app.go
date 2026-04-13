@@ -26,6 +26,7 @@ import (
 	"github.com/mogglemoss/pelorus/internal/connect"
 	"github.com/mogglemoss/pelorus/internal/help"
 	"github.com/mogglemoss/pelorus/internal/jump"
+	"github.com/mogglemoss/pelorus/internal/mascot"
 	"github.com/mogglemoss/pelorus/internal/ops"
 	"github.com/mogglemoss/pelorus/internal/palette"
 	"github.com/mogglemoss/pelorus/internal/pane"
@@ -43,6 +44,25 @@ type tickMsg struct{}
 
 // watchEventMsg is sent when the filesystem watcher detects a change.
 type watchEventMsg struct{ dir string }
+
+// footerItem records the position and action of one shortcut hint in the footer.
+type footerItem struct {
+	startX   int
+	endX     int
+	actionID string
+}
+
+// headerTaglines rotates through these in row 1 of the header.
+var headerTaglines = []string{
+	"NAVIGATIONAL INSTRUMENT",
+	"COURSE CORRECTION ACTIVE",
+	"BEARING NOMINAL",
+	"HEADING ACQUISITION SYSTEM",
+	"CELESTIAL FIX IN PROGRESS",
+}
+
+// numHeaderRows is the fixed height of the 3-row header.
+const numHeaderRows = 3
 
 // Model is the root Bubbletea model for Pelorus.
 type Model struct {
@@ -69,6 +89,7 @@ type Model struct {
 	queue         *ops.Queue
 	queueOpen     bool
 	tickerRunning bool
+	connecting    bool // true while an SFTP/SSH connection is being established
 
 	// Huh overlay
 	huhOverlay    *huh.Form
@@ -106,6 +127,12 @@ type Model struct {
 
 	statusMsg string // transient message shown in status bar
 	gitBranch string // current git branch for active pane's repo
+
+	// Mascot animation state.
+	mascotFrame    int
+	mascotActive   bool // true while any async work is in flight
+	footerHoverIdx int  // -1 = no hover; index into footerItems
+	footerItems    []footerItem
 }
 
 // New creates the root app model.
@@ -127,6 +154,8 @@ func New(
 	m.panes[0] = pane.New(leftPath, prov, t, cfg.General.ShowHidden)
 	m.panes[1] = pane.New(rightPath, prov, t, cfg.General.ShowHidden)
 	m.panes[0].IsActive = true
+	m.panes[0].Label = "LOCAL"
+	m.panes[1].Label = "LOCAL"
 
 	m.paletteModel = palette.New(reg, t)
 	m.previewModel = preview.New(t)
@@ -136,6 +165,7 @@ func New(
 	m.sftpProviders = make(map[string]*sftpprov.Provider)
 	m.helpModel = help.New(reg, t)
 	m.marks = make(map[rune]string)
+	m.footerHoverIdx = -1
 	m.searchModel = search.New(t)
 	cmdTi := textinput.New()
 	cmdTi.Placeholder = "command…"
@@ -159,10 +189,10 @@ func (m *Model) Init() tea.Cmd {
 	m.watcher, err = fsnotify.NewWatcher()
 	if err != nil {
 		// Watcher unavailable — run without auto-refresh.
-		return nil
+		return mascot.Tick()
 	}
 	m.updateWatchers()
-	return waitForWatchEvent(m.watcher)
+	return tea.Batch(waitForWatchEvent(m.watcher), mascot.Tick())
 }
 
 // Update implements tea.Model.
@@ -301,6 +331,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		ap := m.activeP()
 		ap.ToggleSelection()
 		return m, m.updatePreview()
+
+	case actions.PreviewSearchMsg:
+		if sel := m.activeP().Selected(); sel != nil && !sel.IsDir {
+			if !m.showPreview {
+				m.showPreview = true
+				m.layoutPanes()
+			}
+			m.previewModel.OpenSearch()
+		}
+		return m, nil
 
 	case actions.OpenEditorMsg:
 		sel := m.activeP().Selected()
@@ -670,13 +710,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case connect.ConnectMsg:
 		m.connectOpen = false
+		m.connecting = true
 		return m, m.connectToHost(msg)
 
 	case connectErrMsg:
+		m.connecting = false
 		m.statusMsg = "Connect failed: " + msg.err.Error()
 		return m, nil
 
 	case connectedMsg:
+		m.connecting = false
 		ip := m.inactiveP()
 		if old, ok := m.sftpProviders[msg.alias]; ok {
 			old.Close()
@@ -685,8 +728,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		ip.Provider = msg.prov
 		ip.Path = "/"
 		ip.Reload()
+		ip.Label = strings.ToUpper(msg.alias)
 		m.updateWatchers()
-		m.statusMsg = fmt.Sprintf("Connected to %s", msg.alias)
 		return m, nil
 
 	case actions.DisconnectMsg:
@@ -696,7 +739,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// Find and close the SFTP provider.
-		label := ap.Provider.String()
 		for alias, prov := range m.sftpProviders {
 			if prov == ap.Provider {
 				prov.Close()
@@ -718,8 +760,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		ap.Provider = localProv
 		ap.Path = home
 		ap.Reload()
+		ap.Label = "LOCAL"
 		m.updateWatchers()
-		m.statusMsg = fmt.Sprintf("Disconnected from %s", label)
 		return m, tea.Batch(m.updatePreview(), m.updateGitStatus())
 
 	// --- Queue messages ---
@@ -732,6 +774,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ops.CloseQueueMsg:
 		m.queueOpen = false
 		return m, nil
+
+	case mascot.TickMsg:
+		working := m.previewModel.IsLoading() || len(m.queue.Running()) > 0 || m.connecting
+		if working || m.mascotFrame != 0 {
+			// Keep animating until the current cycle completes (frame wraps to 0).
+			m.mascotActive = true
+			m.mascotFrame = (m.mascotFrame + 1) % 6
+		} else {
+			m.mascotActive = false
+		}
+		return m, mascot.Tick()
 
 	case watchEventMsg:
 		if msg.dir == "" {
@@ -1412,9 +1465,9 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 	}
 
 	// Layout geometry (mirrors layoutPanes).
-	// Row 0 = header; panes start at row 1.
-	const headerRows = 1
-	paneRow := msg.Y - headerRows // row within the pane area
+	// Rows 0–(numHeaderRows-1) = header; panes start at row numHeaderRows.
+	footerRow := m.height - 1 // last row
+	paneRow := msg.Y - numHeaderRows // row within the pane area
 
 	left0 := 0
 	left1 := m.panes[0].Width // column where divider sits
@@ -1425,6 +1478,33 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 	inLeft := msg.X >= left0 && msg.X < left1
 	inRight := msg.X >= right0 && msg.X < right1
 	inPreview := m.showPreview && msg.X >= right1+1
+	inFooter := msg.Y == footerRow
+
+	// Mouse motion and release: update footer hover highlight.
+	if msg.Action == tea.MouseActionMotion || msg.Action == tea.MouseActionRelease {
+		newHover := -1
+		if inFooter {
+			for i, item := range m.footerItems {
+				if msg.X >= item.startX && msg.X <= item.endX {
+					newHover = i
+					break
+				}
+			}
+		}
+		if newHover != m.footerHoverIdx {
+			m.footerHoverIdx = newHover
+		}
+		// Fire footer action on release (terminals send release for a click).
+		if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft && newHover >= 0 {
+			item := m.footerItems[newHover]
+			if item.actionID != "" {
+				if a, ok := m.registry.ByID(item.actionID); ok {
+					return a.Handler(m.buildAppState())
+				}
+			}
+		}
+		return nil
+	}
 
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
@@ -1452,6 +1532,19 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 		return m.updatePreview()
 
 	case tea.MouseButtonLeft:
+		// Footer shortcut click: find the item by X position directly.
+		if inFooter {
+			for _, item := range m.footerItems {
+				if msg.X >= item.startX && msg.X <= item.endX {
+					if item.actionID != "" {
+						if a, ok := m.registry.ByID(item.actionID); ok {
+							return a.Handler(m.buildAppState())
+						}
+					}
+					break
+				}
+			}
+		}
 		if paneRow < 0 {
 			return nil // click in header
 		}
@@ -1497,8 +1590,8 @@ func (m *Model) layoutPanes() {
 	if m.width < 10 || m.height < 6 {
 		return
 	}
-	// Reserve 1 row for header + 1 row for status bar.
-	paneH := m.height - 2
+	// Reserve 3 rows for header + 1 row for footer.
+	paneH := m.height - numHeaderRows - 1
 
 	if m.showPreview {
 		// Three-pane layout: left 30%, right 30%, preview 40% (configurable).
@@ -1576,10 +1669,10 @@ func (m *Model) View() string {
 		panesRow = lipgloss.JoinHorizontal(lipgloss.Top, leftView, divider, rightView)
 	}
 
-	// Status bar.
-	statusBar := m.renderStatusBar()
+	// Footer shortcut bar.
+	footer := m.renderFooter()
 
-	screen := lipgloss.JoinVertical(lipgloss.Left, header, panesRow, statusBar)
+	screen := lipgloss.JoinVertical(lipgloss.Left, header, panesRow, footer)
 
 	// Overlay palette if open.
 	if m.paletteOpen {
@@ -1633,163 +1726,207 @@ func (m *Model) View() string {
 	return screen
 }
 
-// renderHeader builds the branded header bar (1 row).
-// Left: branding + active directory name. Right: key hints only.
+// renderHeader builds the branded header bar (3 rows).
+//
+//	Row 1: "PELORUS" title (left) + mascot antenna (right)
+//	Row 2: breadcrumb path + git branch (left) + mascot head (right)
+//	Row 3: perms / size / selection count (left) + mascot face (right)
 func (m *Model) renderHeader() string {
 	ap := m.activeP()
-	caps := ap.Provider.Capabilities()
+	hdrBg := m.theme.HeaderBg
 
-	// Active directory name — just the final path component.
-	// For remote panes, prefix with hostname so context is clear.
-	dirName := filepath.Base(ap.Path)
-	if dirName == "." || dirName == "" {
-		dirName = "/"
-	}
-	if caps.IsRemote && caps.RemoteLabel != "" {
-		host := caps.RemoteLabel // "user@hostname"
-		// Just the hostname part for brevity in the header.
-		if at := strings.Index(host, "@"); at >= 0 {
-			host = host[at+1:]
+	mascotView := mascot.View(m.mascotFrame, m.mascotActive, hdrBg)
+	mascotW := mascot.Width()
+	mascotLines := strings.Split(mascotView, "\n")
+	mascotLine := func(n int) string {
+		if n < len(mascotLines) {
+			return mascotLines[n]
 		}
-		dirName = host + ":" + dirName
+		return strings.Repeat(" ", mascotW)
 	}
 
-	// Key hints — context-sensitive: swap connect for disconnect on remote panes.
-	hints := "  ctrl+p palette   g jump   c connect  "
-	if caps.IsRemote {
-		hints = "  ctrl+p palette   g jump   ctrl+d disconnect  "
+	// ---- Row 1: title (left) + mascot antenna (right) ----
+
+	titlePart := m.theme.HeaderTitle.Render(" PELORUS")
+	titleW := lipgloss.Width(titlePart)
+	row1GapW := m.width - titleW - mascotW
+	if row1GapW < 0 {
+		row1GapW = 0
+	}
+	row1Gap := m.theme.Header.Width(row1GapW).Render("")
+	row1 := lipgloss.JoinHorizontal(lipgloss.Top, titlePart, row1Gap, mascotLine(0))
+
+	// ---- Row 2: breadcrumb + git branch (left) + mascot head (right) ----
+
+	home, _ := os.UserHomeDir()
+	path := ap.Path
+	if home != "" && strings.HasPrefix(path, home) {
+		path = "~" + path[len(home):]
+	}
+	breadcrumb := strings.ReplaceAll(path, string(filepath.Separator), " › ")
+	if breadcrumb == "" {
+		breadcrumb = "/"
+	}
+	if ap.FilterStr != "" {
+		breadcrumb += fmt.Sprintf("  /%s", ap.FilterStr)
 	}
 
-	leftPart := m.theme.HeaderTitle.Render("  PELORUS")
-	dirPart := m.theme.HeaderHint.Render("  " + dirName)
-	rightPart := m.theme.HeaderHint.Render(hints)
+	// Use header background for rows 2 & 3 — StatusBarAccent/Muted carry the
+	// status bar background which would create a colored bar in the header.
+	hdrFgAccent := lipgloss.NewStyle().Background(lipgloss.Color(hdrBg)).Foreground(m.theme.StatusBarAccent.GetForeground())
+	hdrFgMuted := lipgloss.NewStyle().Background(lipgloss.Color(hdrBg)).Foreground(m.theme.StatusBarMuted.GetForeground())
 
-	// Fill remaining space between dir name and hints.
-	gapW := m.width - lipgloss.Width(leftPart) - lipgloss.Width(dirPart) - lipgloss.Width(rightPart)
-	if gapW < 0 {
-		gapW = 0
+	pathPart := hdrFgAccent.Render(" " + breadcrumb)
+	gitPart := ""
+	if m.gitBranch != "" {
+		gitPart = hdrFgMuted.Render("  ⎇ " + m.gitBranch)
 	}
-	gapPart := m.theme.Header.Width(gapW).Render("")
+	breadW2 := m.width - mascotW
+	if breadW2 < 4 {
+		breadW2 = 4
+	}
+	usedW := lipgloss.Width(pathPart) + lipgloss.Width(gitPart)
+	padW := breadW2 - usedW
+	if padW < 0 {
+		padW = 0
+	}
+	breadSeg := pathPart + gitPart + m.theme.Header.Width(padW).Render("")
+	row2 := lipgloss.JoinHorizontal(lipgloss.Top, breadSeg, mascotLine(1))
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, leftPart, dirPart, gapPart, rightPart)
+	// ---- Row 3: perms / size / selection (left) + mascot face (right) ----
+
+	permsStr := ""
+	if sel := ap.Selected(); sel != nil {
+		permsStr = sel.Mode.String() + "  " + fileinfo.HumanSize(sel.Size)
+	}
+	if len(ap.MultiSel) > 0 {
+		permsStr = fmt.Sprintf("%d selected  ", len(ap.MultiSel)) + permsStr
+	}
+
+	permsW := m.width - mascotW
+	if permsW < 1 {
+		permsW = 1
+	}
+	permsSeg := hdrFgMuted.Width(permsW).Render(" " + permsStr)
+	row3 := lipgloss.JoinHorizontal(lipgloss.Top, permsSeg, mascotLine(2))
+
+	return lipgloss.JoinVertical(lipgloss.Left, row1, row2, row3)
 }
 
-// renderStatusBar builds the status bar string.
-func (m *Model) renderStatusBar() string {
-	ap := m.activeP()
-
-	// Run-command prompt: replace status bar with a full-width textinput.
+// renderFooter builds the footer shortcut bar.
+//
+// Priority overrides (full-width):
+//  1. Run-command prompt (cmdPromptOpen)
+//  2. Transient status message (statusMsg)
+//
+// Default: shortcut hints justified across the full width with key chips in
+// accent color and descriptions in muted color. Mouse hover is tracked via
+// footerHoverIdx / footerItems.
+func (m *Model) renderFooter() string {
+	// Run-command prompt: replace footer with a full-width textinput.
 	if m.cmdPromptOpen {
 		prompt := m.theme.StatusBarAccent.Render(" ! ")
 		input := m.theme.StatusBar.Width(m.width - lipgloss.Width(prompt)).Render(m.cmdPromptInput.View())
 		return lipgloss.JoinHorizontal(lipgloss.Top, prompt, input)
 	}
 
-	// If a transient message is set, show it full-width.
+	// Transient status message.
 	if m.statusMsg != "" {
 		return m.theme.StatusBar.Width(m.width).Render(" " + m.statusMsg)
 	}
 
-	// --- Left: breadcrumb path ---
-	home, _ := os.UserHomeDir()
-	path := ap.Path
-	if home != "" && strings.HasPrefix(path, home) {
-		path = "~" + path[len(home):]
+	// Build the shortcut list. Always-present shortcuts first, then context
+	// shortcuts based on what is currently selected.
+	type shortcut struct {
+		key      string
+		desc     string
+		actionID string
 	}
-	// Build breadcrumb by replacing separators with › .
-	breadcrumb := strings.ReplaceAll(path, string(filepath.Separator), " › ")
-	if breadcrumb == "" {
-		breadcrumb = "/"
+	shortcuts := []shortcut{
+		{"tab", "switch", "nav.switch-pane"},
+		{"/", "search", "view.preview-search"},
+		{"^p", "palette", "palette.open"},
+		{"?", "help", "app.help"},
+		{"q", "quit", "app.quit"},
 	}
-	// Archive suffix.
-	if ap.HasArchive() {
-		if label := ap.ArchiveLabel(); label != "" {
-			breadcrumb += "  [" + label + "]"
+	ap := m.activeP()
+	if sel := ap.Selected(); sel != nil {
+		if sel.IsDir {
+			shortcuts = append(shortcuts, shortcut{"l", "enter", "nav.enter"})
+		} else {
+			shortcuts = append(shortcuts, shortcut{"e", "edit", "file.open-editor"})
 		}
 	}
-	// Filter indicator.
-	if ap.FilterStr != "" {
-		breadcrumb += fmt.Sprintf("  /%s", ap.FilterStr)
-	}
-	// Multi-select count.
-	selCount := len(ap.MultiSel)
-
-	// --- Center: git branch ---
-	center := ""
-	if m.gitBranch != "" {
-		center = "⎇ " + m.gitBranch
+	if len(ap.MultiSel) > 0 {
+		shortcuts = append(shortcuts, shortcut{"C", "copy", "file.copy"})
+		shortcuts = append(shortcuts, shortcut{"M", "move", "file.move"})
 	}
 
-	// --- Right: remote badge ---
-	right := ""
-	if caps := ap.Provider.Capabilities(); caps.IsRemote && caps.RemoteLabel != "" {
-		right = "⇄ " + caps.RemoteLabel
+	// Measure each shortcut's rendered width: " key desc "
+	type rendered struct {
+		text  string
+		width int
+		start int
+		end   int
+	}
+	parts := make([]rendered, len(shortcuts))
+	totalW := 0
+	for i, sc := range shortcuts {
+		text := " " + sc.key + " " + sc.desc + " "
+		w := lipgloss.Width(text)
+		parts[i] = rendered{text: text, width: w}
+		totalW += w
 	}
 
-	// --- Far-right: perms + size + sel count ---
-	farRight := ""
-	if sel := ap.Selected(); sel != nil {
-		farRight = sel.Mode.String() + "  " + fileinfo.HumanSize(sel.Size)
+	// Distribute remaining space as gaps between items.
+	gaps := len(shortcuts) - 1
+	extraW := m.width - totalW
+	if extraW < 0 {
+		extraW = 0
 	}
-	if selCount > 0 {
-		farRight = fmt.Sprintf("%d selected  ", selCount) + farRight
-	}
-
-	// Layout arithmetic.
-	centerW := lipgloss.Width(center)
-	rightW := lipgloss.Width(right)
-	farRightW := lipgloss.Width(farRight)
-
-	// Add padding around center and right.
-	if centerW > 0 {
-		centerW += 4 // 2 each side
-	}
-	if rightW > 0 {
-		rightW += 4
-	}
-	if farRightW > 0 {
-		farRightW += 2
+	gapW := 0
+	if gaps > 0 {
+		gapW = extraW / gaps
 	}
 
-	leftW := m.width - centerW - rightW - farRightW
-	if leftW < 4 {
-		leftW = 4
+	bg := lipgloss.Color(m.theme.FooterBg)
+	baseBg := lipgloss.NewStyle().Background(bg)
+
+	var sb strings.Builder
+	newItems := make([]footerItem, len(shortcuts))
+	x := 0
+	for i, sc := range shortcuts {
+		p := parts[i]
+		// Split into key chip and description.
+		keyText := " " + sc.key + " "
+		descText := sc.desc + " "
+
+		var rendered string
+		if m.footerHoverIdx == i {
+			rendered = m.theme.FooterHover.Render(keyText + descText)
+		} else {
+			rendered = m.theme.FooterKey.Render(keyText) + m.theme.FooterDesc.Render(descText)
+		}
+		sb.WriteString(rendered)
+		newItems[i] = footerItem{startX: x, endX: x + p.width - 1, actionID: sc.actionID}
+		x += p.width
+
+		// Gap between items (not after last).
+		if i < len(shortcuts)-1 && gapW > 0 {
+			sb.WriteString(baseBg.Width(gapW).Render(""))
+			x += gapW
+		}
 	}
 
-	bg := m.theme.StatusBar.GetBackground()
-	base := lipgloss.NewStyle().Background(bg)
-	accentStyle := m.theme.StatusBarAccent
-	mutedStyle := m.theme.StatusBarMuted
-
-	// Left: accent color breadcrumb.
-	leftContent := " " + breadcrumb
-	leftSeg := accentStyle.Width(leftW).Render(leftContent)
-
-	// Center: muted branch indicator.
-	var centerSeg string
-	if centerW > 0 {
-		centerSeg = mutedStyle.Width(centerW).Align(lipgloss.Center).Render(center)
-	} else {
-		centerSeg = base.Width(centerW).Render("")
+	// Fill any remaining space.
+	if x < m.width {
+		sb.WriteString(baseBg.Width(m.width - x).Render(""))
 	}
 
-	// Right: remote badge in accent.
-	var rightSeg string
-	if rightW > 0 {
-		rightSeg = accentStyle.Width(rightW).Align(lipgloss.Right).Render(right + "  ")
-	} else {
-		rightSeg = base.Width(rightW).Render("")
-	}
+	// Cache items for mouse hit-testing.
+	m.footerItems = newItems
 
-	// Far-right: muted perms+size.
-	var farRightSeg string
-	if farRightW > 0 {
-		farRightSeg = mutedStyle.Width(farRightW).Align(lipgloss.Right).Render(farRight + " ")
-	} else {
-		farRightSeg = base.Width(farRightW).Render("")
-	}
-
-	return lipgloss.JoinHorizontal(lipgloss.Top, leftSeg, centerSeg, rightSeg, farRightSeg)
+	return sb.String()
 }
 
 // onHuhComplete is called when a Huh overlay form reaches StateCompleted.

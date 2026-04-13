@@ -2,12 +2,14 @@ package preview
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -32,6 +34,7 @@ const maxReadBytes = 64 * 1024 // 64 KB
 type ContentReadyMsg struct {
 	Content string
 	Err     error
+	IsImage bool // true when Content is chafa pixel output — skip text post-processing
 }
 
 // Model is the Bubbletea model for the preview pane.
@@ -46,6 +49,8 @@ type Model struct {
 
 	vp      viewport.Model
 	spinner spinner.Model
+
+	rawIsImage bool // whether current content is pixel data (chafa)
 
 	// Search state
 	searchOpen    bool
@@ -63,7 +68,6 @@ func New(t *theme.Theme) *Model {
 	s.Style = lipgloss.NewStyle().Foreground(t.StatusBarAccent.GetForeground())
 
 	vp := viewport.New(0, 0)
-	vp.Style = lipgloss.NewStyle().Background(t.PreviewBorder.GetBackground())
 
 	si := textinput.New()
 	si.Placeholder = "search…"
@@ -92,21 +96,49 @@ func (m *Model) SetFile(fi *fileinfo.FileInfo) tea.Cmd {
 	width := m.Width
 	height := m.Height
 
+	isImg := fi != nil && isImageExt(filepath.Ext(fi.Name))
 	return tea.Batch(
 		func() tea.Msg {
 			content, err := renderFile(fi, width, height)
-			return ContentReadyMsg{Content: content, Err: err}
+			return ContentReadyMsg{Content: content, Err: err, IsImage: isImg}
 		},
 		m.spinner.Tick,
 	)
 }
 
 // SetContent stores the loaded content (called from app on ContentReadyMsg).
+// All content — regardless of how it was rendered — is post-processed here to:
+//  1. Strip any residual background ANSI codes (catches markdown, plain text, etc.)
+//  2. Restore the theme background after every SGR reset so inline resets don't
+//     snap individual characters to the terminal's default background color.
 func (m *Model) SetContent(msg ContentReadyMsg) {
 	m.loading = false
 	m.err = msg.Err
-	m.rawContent = msg.Content
-	m.vp.SetContent(msg.Content)
+
+	m.rawIsImage = msg.IsImage
+
+	content := msg.Content
+	if msg.Err == nil && content != "" && !msg.IsImage {
+		// Image content (chafa output) must not be post-processed: pixel
+		// encoding relies on background colors that stripANSIBg would remove.
+		bg := m.Theme.PreviewBg
+		content = stripANSIBg(content)
+		if bg != "" {
+			content = fixResets(content, bg)
+		}
+	}
+
+	// Image content must not be wrapped in a background style — it corrupts
+	// sixel/kitty sequences and breaks terminal layout. Text content gets the
+	// theme background so cells after SGR resets show the correct color.
+	if msg.IsImage {
+		m.vp.Style = lipgloss.Style{}
+	} else if m.Theme != nil && m.Theme.PreviewBg != "" {
+		m.vp.Style = lipgloss.NewStyle().Background(lipgloss.Color(m.Theme.PreviewBg))
+	}
+
+	m.rawContent = content
+	m.vp.SetContent(content)
 	m.vp.GotoTop()
 	if m.searchOpen && m.searchQuery != "" {
 		m.rebuildSearch()
@@ -135,6 +167,13 @@ func (m *Model) SetViewportSize(w, h int) {
 	}
 	m.vp.Width = w
 	m.vp.Height = h
+	// Keep the viewport background in sync with content type. Image content
+	// (sixel/kitty) must have no style wrapper; text content gets the theme bg.
+	if !m.rawIsImage && m.Theme != nil && m.Theme.PreviewBg != "" {
+		m.vp.Style = lipgloss.NewStyle().Background(lipgloss.Color(m.Theme.PreviewBg))
+	} else if m.rawIsImage {
+		m.vp.Style = lipgloss.Style{}
+	}
 }
 
 // OpenSearch opens the inline search bar.
@@ -208,8 +247,102 @@ func (m *Model) PrevMatch() { m.prevMatch() }
 
 var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*[mGKHF]`)
 
+// ansiSGR matches any ANSI SGR escape sequence.
+var ansiSGR = regexp.MustCompile(`\x1b\[([0-9;]*)m`)
+
+// stripANSIBg removes background-color parameters from ANSI SGR sequences while
+// preserving foreground colors, bold, italic, and other attributes. It handles
+// combined sequences like \x1b[38;2;r;g;b;48;2;r;g;bm that Chroma emits.
+func stripANSIBg(s string) string {
+	return ansiSGR.ReplaceAllStringFunc(s, func(seq string) string {
+		m := ansiSGR.FindStringSubmatch(seq)
+		if m == nil || m[1] == "" {
+			return seq // bare reset — keep as-is
+		}
+		params := strings.Split(m[1], ";")
+		kept := make([]string, 0, len(params))
+		i := 0
+		for i < len(params) {
+			n, err := strconv.Atoi(params[i])
+			if err != nil {
+				kept = append(kept, params[i])
+				i++
+				continue
+			}
+			switch {
+			case n == 38 || n == 58:
+				// Extended foreground or underline color (38;5;n or 38;2;r;g;b).
+				// Keep the whole sub-group intact; do NOT process sub-params
+				// individually — their numeric values (e.g. 100) would be
+				// misidentified as bright-background codes.
+				if i+1 < len(params) {
+					sub, _ := strconv.Atoi(params[i+1])
+					if sub == 5 && i+2 < len(params) {
+						kept = append(kept, params[i:i+3]...)
+						i += 3
+					} else if sub == 2 && i+4 < len(params) {
+						kept = append(kept, params[i:i+5]...)
+						i += 5
+					} else {
+						kept = append(kept, params[i])
+						i++
+					}
+				} else {
+					kept = append(kept, params[i])
+					i++
+				}
+			case (n >= 40 && n <= 47) || (n >= 100 && n <= 107):
+				// Basic or bright background — skip 1 param.
+				i++
+			case n == 48:
+				// Extended background: 48;5;n or 48;2;r;g;b — skip all sub-params.
+				if i+1 < len(params) {
+					sub, _ := strconv.Atoi(params[i+1])
+					if sub == 5 && i+2 < len(params) {
+						i += 3 // 48;5;n
+					} else if sub == 2 && i+4 < len(params) {
+						i += 5 // 48;2;r;g;b
+					} else {
+						i += 2
+					}
+				} else {
+					i++
+				}
+			default:
+				kept = append(kept, params[i])
+				i++
+			}
+		}
+		if len(kept) == 0 {
+			return "" // nothing left — drop sequence
+		}
+		return "\x1b[" + strings.Join(kept, ";") + "m"
+	})
+}
+
 func stripANSI(s string) string {
 	return ansiEscape.ReplaceAllString(s, "")
+}
+
+// fixResets replaces every bare SGR reset (\x1b[0m or \x1b[m) with a reset
+// followed by an immediate restore of the given background color. This prevents
+// inline resets from snapping the background to the terminal default between
+// syntax-highlighted tokens.
+//
+// hexBg must be a 6-digit hex color with leading "#", e.g. "#1a1815".
+// If parsing fails the string is returned unchanged.
+func fixResets(s, hexBg string) string {
+	if len(hexBg) != 7 || hexBg[0] != '#' {
+		return s
+	}
+	raw, err := hex.DecodeString(hexBg[1:])
+	if err != nil || len(raw) != 3 {
+		return s
+	}
+	restore := fmt.Sprintf("\x1b[48;2;%d;%d;%dm", raw[0], raw[1], raw[2])
+	s = strings.ReplaceAll(s, "\x1b[0m", "\x1b[0m"+restore)
+	s = strings.ReplaceAll(s, "\x1b[m", "\x1b[m"+restore)
+	return s
 }
 
 func (m *Model) rebuildSearch() {
@@ -456,7 +589,8 @@ func renderChroma(filename, content string, _ int) (string, error) {
 		return "", err
 	}
 
-	return buf.String(), nil
+	// Strip background-color parameters so the viewport background is uniform.
+	return stripANSIBg(buf.String()), nil
 }
 
 func renderDir(fi *fileinfo.FileInfo, width, maxLines int) (string, error) {
@@ -514,7 +648,7 @@ func renderChafa(path string, width, height int) (string, error) {
 		return "", fmt.Errorf("chafa not found")
 	}
 	size := fmt.Sprintf("%dx%d", width, height)
-	cmd := exec.Command("chafa", "--size", size, "--colors", "full", path)
+	cmd := exec.Command("chafa", "--format", "symbols", "--size", size, "--colors", "full", path)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err

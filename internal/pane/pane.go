@@ -66,6 +66,10 @@ type Model struct {
 	Mode  Mode
 	Input textinput.Model
 
+	// Label is the HARUSPEX-style section label shown in the path header
+	// (e.g. "LOCAL", "REMOTE", "ARCHIVE"). Set by the parent app.
+	Label string
+
 	// Dimensions
 	Width  int
 	Height int
@@ -549,30 +553,38 @@ func (m *Model) View() string {
 		full = "…" + full[len(full)-innerW+1:]
 	}
 	pathDisplay = full
-	// Ambient color: header fg shifts subtly based on directory context.
-	//   remote   → steel blue  (semantic: not your machine)
-	//   archive  → amber       (semantic: compressed/archived content)
-	//   git repo → soft green  (semantic: version-controlled)
-	//   default  → theme accent (PathHeader style)
+	// Path header style: active pane uses the theme's PathHeader accent, inactive
+	// pane uses a faint version of the same. Archive context gets a subtle amber tint.
+	// Remote and git-repo overrides are handled via the section label, so we keep
+	// path color consistently theme-driven here.
 	var pathStyle lipgloss.Style
 	if m.IsActive {
 		pathStyle = m.Theme.PathHeader.Copy()
-		switch {
-		case caps.IsRemote:
-			pathStyle = pathStyle.Foreground(lipgloss.Color("#60a5fa"))
-		case m.HasArchive():
+		if m.HasArchive() {
+			// Archive: amber tint signals compressed content, works across all themes.
 			pathStyle = pathStyle.Foreground(lipgloss.Color("#ffaa55"))
-		case m.InGitRepo:
-			pathStyle = pathStyle.Foreground(lipgloss.Color("#4ade80"))
-		// default: PathHeader already carries the theme's accent color
 		}
-	} else if caps.IsRemote {
-		// Remote panes get a faint blue even when inactive — still visibly distinct.
-		pathStyle = m.Theme.PathHeader.Copy().Foreground(lipgloss.Color("#60a5fa")).Faint(true)
 	} else {
 		pathStyle = m.Theme.PathHeader.Copy().Faint(true)
 	}
-	header := pathStyle.Width(innerW).Render(pathDisplay)
+	// Build path header line. If a section label is set, right-align it so the
+	// path gets full left-priority truncation and label stays out of the way.
+	var header string
+	if m.Label != "" {
+		labelStr := m.Theme.SectionLabel.Render(m.Label)
+		labelW := lipgloss.Width(labelStr)
+		pathW := innerW - labelW - 1
+		if pathW < 4 {
+			pathW = 4
+		}
+		truncated := pathDisplay
+		if len(truncated) > pathW {
+			truncated = "…" + truncated[len(truncated)-pathW+1:]
+		}
+		header = pathStyle.Width(pathW).Render(truncated) + " " + labelStr
+	} else {
+		header = pathStyle.Width(innerW).Render(pathDisplay)
+	}
 	sb.WriteString(header)
 	sb.WriteString("\n")
 
@@ -721,6 +733,11 @@ func (m *Model) renderEntry(fi fileinfo.FileInfo, selected bool, width int) stri
 		rendered = style.Render(baseLine)
 	}
 
+	// Git badge: use the pane background so no terminal-default grey box appears.
+	paneBg := m.Theme.InactiveBorder.GetBackground()
+	if selected {
+		paneBg = m.Theme.Cursor.GetBackground()
+	}
 	if hasGit {
 		var glyphColor lipgloss.Color
 		switch gitGlyph {
@@ -733,11 +750,11 @@ func (m *Model) renderEntry(fi fileinfo.FileInfo, selected bool, width int) stri
 		default:
 			glyphColor = "#4a6070"
 		}
-		glyphRender := lipgloss.NewStyle().Foreground(glyphColor).Render(" " + gitGlyph)
+		glyphRender := lipgloss.NewStyle().Foreground(glyphColor).Background(paneBg).Render(" " + gitGlyph)
 		rendered = rendered + glyphRender
 	} else if dirDirty {
 		// Aggregate dirty indicator: directory contains modified/untracked children.
-		glyphRender := lipgloss.NewStyle().Foreground(lipgloss.Color("#8a7040")).Render(" ~")
+		glyphRender := lipgloss.NewStyle().Foreground(lipgloss.Color("#8a7040")).Background(paneBg).Render(" ~")
 		rendered = rendered + glyphRender
 	}
 

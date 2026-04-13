@@ -36,9 +36,25 @@ type Theme struct {
 	// concatenating sections without a wrapper Render call.
 	HeaderBg string
 
+	// PreviewBg is the raw hex background color for the preview content area
+	// (e.g. "#1a1815"). Used directly without lipgloss type assertions.
+	PreviewBg string
+
 	// Status bar accent styles.
 	StatusBarAccent lipgloss.Style // phosphor cyan for primary status bar text
 	StatusBarMuted  lipgloss.Style // teal dim for secondary status bar text
+
+	// Footer shortcut bar styles.
+	FooterBg    string         // raw background color for the footer row
+	FooterKey   lipgloss.Style // shortcut key chip (e.g. "^p")
+	FooterDesc  lipgloss.Style // shortcut description text
+	FooterHover lipgloss.Style // hovered shortcut highlight
+
+	// SectionLabel is the HARUSPEX-style uppercase pane label ("LOCAL", "REMOTE").
+	SectionLabel lipgloss.Style
+
+	// MascotStyle is the foreground color applied to the mascot ASCII art.
+	MascotStyle lipgloss.Style
 }
 
 // Get returns the named theme, defaulting to pelorus.
@@ -63,6 +79,8 @@ func Get(name string) Theme {
 		return DraculaTheme()
 	case "catppuccin":
 		return CatppuccinTheme()
+	case "haruspex":
+		return HaruspexTheme()
 	case "omarchy":
 		// Explicit opt-in: dynamic if available, static Catppuccin Mocha otherwise.
 		if t, ok := LoadOmarchyTheme(); ok {
@@ -74,7 +92,7 @@ func Get(name string) Theme {
 		if t, ok := LoadOmarchyTheme(); ok {
 			return t
 		}
-		return PelorusTheme()
+		return HaruspexTheme()
 	}
 }
 
@@ -105,7 +123,8 @@ const (
 func PelorusTheme() Theme {
 	hdrBg := colorPrimary
 	return Theme{
-		HeaderBg: hdrBg,
+		HeaderBg:  hdrBg,
+		PreviewBg: colorBgPane,
 
 		ActiveBorder: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -201,6 +220,26 @@ func PelorusTheme() Theme {
 		StatusBarMuted: lipgloss.NewStyle().
 			Background(lipgloss.Color(colorStatus)).
 			Foreground(lipgloss.Color(colorAccentDim)),
+
+		FooterBg: colorStatus,
+		FooterKey: lipgloss.NewStyle().
+			Background(lipgloss.Color(colorStatus)).
+			Foreground(lipgloss.Color(colorAccent)).
+			Bold(true),
+		FooterDesc: lipgloss.NewStyle().
+			Background(lipgloss.Color(colorStatus)).
+			Foreground(lipgloss.Color(colorAccentDim)),
+		FooterHover: lipgloss.NewStyle().
+			Background(lipgloss.Color(colorAccent)).
+			Foreground(lipgloss.Color(colorStatus)).
+			Bold(true),
+
+		SectionLabel: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorAccent)).
+			Bold(true),
+
+		MascotStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorAccent)),
 	}
 }
 
@@ -212,7 +251,8 @@ func GruvboxTheme() Theme {
 	hdrBg := "#3c3836"
 	paneBg := "#282828"
 	return Theme{
-		HeaderBg: hdrBg,
+		HeaderBg:  hdrBg,
+		PreviewBg: paneBg,
 
 		ActiveBorder: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -308,6 +348,26 @@ func GruvboxTheme() Theme {
 		StatusBarMuted: lipgloss.NewStyle().
 			Background(lipgloss.Color("#1d2021")).
 			Foreground(lipgloss.Color("#a89984")),
+
+		FooterBg: "#1d2021",
+		FooterKey: lipgloss.NewStyle().
+			Background(lipgloss.Color("#1d2021")).
+			Foreground(lipgloss.Color("#fabd2f")).
+			Bold(true),
+		FooterDesc: lipgloss.NewStyle().
+			Background(lipgloss.Color("#1d2021")).
+			Foreground(lipgloss.Color("#a89984")),
+		FooterHover: lipgloss.NewStyle().
+			Background(lipgloss.Color("#fabd2f")).
+			Foreground(lipgloss.Color("#282828")).
+			Bold(true),
+
+		SectionLabel: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#fabd2f")).
+			Bold(true),
+
+		MascotStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#fabd2f")),
 	}
 }
 
@@ -319,7 +379,8 @@ func NordTheme() Theme {
 	hdrBg := "#3b4252"
 	paneBg := "#2e3440"
 	return Theme{
-		HeaderBg: hdrBg,
+		HeaderBg:  hdrBg,
+		PreviewBg: paneBg,
 
 		ActiveBorder: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -415,6 +476,26 @@ func NordTheme() Theme {
 		StatusBarMuted: lipgloss.NewStyle().
 			Background(lipgloss.Color("#242933")).
 			Foreground(lipgloss.Color("#4c566a")),
+
+		FooterBg: "#242933",
+		FooterKey: lipgloss.NewStyle().
+			Background(lipgloss.Color("#242933")).
+			Foreground(lipgloss.Color("#88c0d0")).
+			Bold(true),
+		FooterDesc: lipgloss.NewStyle().
+			Background(lipgloss.Color("#242933")).
+			Foreground(lipgloss.Color("#4c566a")),
+		FooterHover: lipgloss.NewStyle().
+			Background(lipgloss.Color("#88c0d0")).
+			Foreground(lipgloss.Color("#2e3440")).
+			Bold(true),
+
+		SectionLabel: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#88c0d0")).
+			Bold(true),
+
+		MascotStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#88c0d0")),
 	}
 }
 
@@ -426,7 +507,8 @@ func LightTheme() Theme {
 	hdrBg := "#0e7c7b"
 	paneBg := "#f5f5f5"
 	return Theme{
-		HeaderBg: hdrBg,
+		HeaderBg:  hdrBg,
+		PreviewBg: paneBg,
 
 		ActiveBorder: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -522,6 +604,26 @@ func LightTheme() Theme {
 		StatusBarMuted: lipgloss.NewStyle().
 			Background(lipgloss.Color("#e0e0e0")).
 			Foreground(lipgloss.Color("#777777")),
+
+		FooterBg: "#e0e0e0",
+		FooterKey: lipgloss.NewStyle().
+			Background(lipgloss.Color("#e0e0e0")).
+			Foreground(lipgloss.Color("#0e7c7b")).
+			Bold(true),
+		FooterDesc: lipgloss.NewStyle().
+			Background(lipgloss.Color("#e0e0e0")).
+			Foreground(lipgloss.Color("#555555")),
+		FooterHover: lipgloss.NewStyle().
+			Background(lipgloss.Color("#0e7c7b")).
+			Foreground(lipgloss.Color("#ffffff")).
+			Bold(true),
+
+		SectionLabel: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#0e7c7b")).
+			Bold(true),
+
+		MascotStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#0e7c7b")),
 	}
 }
 
@@ -535,7 +637,8 @@ func DraculaTheme() Theme {
 	statusBg := "#21222C"
 	paletteBg := "#21222C"
 	return Theme{
-		HeaderBg: hdrBg,
+		HeaderBg:  hdrBg,
+		PreviewBg: paneBg,
 
 		ActiveBorder: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -631,6 +734,26 @@ func DraculaTheme() Theme {
 		StatusBarMuted: lipgloss.NewStyle().
 			Background(lipgloss.Color(statusBg)).
 			Foreground(lipgloss.Color("#6272A4")),
+
+		FooterBg: statusBg,
+		FooterKey: lipgloss.NewStyle().
+			Background(lipgloss.Color(statusBg)).
+			Foreground(lipgloss.Color("#BD93F9")).
+			Bold(true),
+		FooterDesc: lipgloss.NewStyle().
+			Background(lipgloss.Color(statusBg)).
+			Foreground(lipgloss.Color("#6272A4")),
+		FooterHover: lipgloss.NewStyle().
+			Background(lipgloss.Color("#BD93F9")).
+			Foreground(lipgloss.Color("#282A36")).
+			Bold(true),
+
+		SectionLabel: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#BD93F9")).
+			Bold(true),
+
+		MascotStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#BD93F9")),
 	}
 }
 
@@ -639,12 +762,13 @@ func DraculaTheme() Theme {
 // ---------------------------------------------------------------------------
 
 func CatppuccinTheme() Theme {
-	hdrBg := "#313244" // surface0
+	hdrBg := "#313244"  // surface0
 	paneBg := "#1e1e2e" // base
-	statusBg := "#11111b" // crust
+	statusBg := "#11111b"  // crust
 	paletteBg := "#181825" // mantle
 	return Theme{
-		HeaderBg: hdrBg,
+		HeaderBg:  hdrBg,
+		PreviewBg: paneBg,
 
 		ActiveBorder: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -740,5 +864,169 @@ func CatppuccinTheme() Theme {
 		StatusBarMuted: lipgloss.NewStyle().
 			Background(lipgloss.Color(statusBg)).
 			Foreground(lipgloss.Color("#585b70")),
+
+		FooterBg: statusBg,
+		FooterKey: lipgloss.NewStyle().
+			Background(lipgloss.Color(statusBg)).
+			Foreground(lipgloss.Color("#cba6f7")).
+			Bold(true),
+		FooterDesc: lipgloss.NewStyle().
+			Background(lipgloss.Color(statusBg)).
+			Foreground(lipgloss.Color("#585b70")),
+		FooterHover: lipgloss.NewStyle().
+			Background(lipgloss.Color("#cba6f7")).
+			Foreground(lipgloss.Color("#1e1e2e")).
+			Bold(true),
+
+		SectionLabel: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#cba6f7")).
+			Bold(true),
+
+		MascotStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#cba6f7")),
+	}
+}
+
+// ---------------------------------------------------------------------------
+// haruspex — warm rust (default)
+// ---------------------------------------------------------------------------
+
+const (
+	hxBg      = "#1a1815"
+	hxSurface = "#201d18"
+	hxPanel   = "#252118"
+	hxText    = "#e8e6e3"
+	hxMuted   = "#7a756e"
+	hxBorder  = "#3a3530"
+	hxRust    = "#C15F3C"
+	hxGold    = "#d4a017"
+	hxSymlink = "#8a6e4a"
+	hxFade    = "#8A3820"
+	hxFlare   = "#e8a559"
+)
+
+func HaruspexTheme() Theme {
+	hdrBg := hxPanel
+	paneBg := hxBg
+	statusBg := hxSurface
+	paletteBg := hxSurface
+	return Theme{
+		HeaderBg:  hdrBg,
+		PreviewBg: paneBg,
+
+		ActiveBorder: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(hxRust)).
+			Background(lipgloss.Color(paneBg)),
+
+		InactiveBorder: lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color(hxBorder)).
+			Background(lipgloss.Color(paneBg)),
+
+		PreviewBorder: lipgloss.NewStyle().
+			Border(lipgloss.Border{
+				Top: "╌", Bottom: "╌",
+				Left: "┊", Right: "┊",
+				TopLeft: "╭", TopRight: "╮",
+				BottomLeft: "╰", BottomRight: "╯",
+			}).
+			BorderForeground(lipgloss.Color(hxBorder)).
+			Background(lipgloss.Color(paneBg)),
+
+		Cursor: lipgloss.NewStyle().
+			Background(lipgloss.Color("#3a2a20")).
+			Foreground(lipgloss.Color(hxRust)).
+			Bold(true),
+
+		DirName: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(hxGold)).
+			Bold(true),
+
+		FileName: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(hxText)),
+
+		SymlinkName: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(hxSymlink)).
+			Italic(true),
+
+		StatusBar: lipgloss.NewStyle().
+			Background(lipgloss.Color(statusBg)).
+			Foreground(lipgloss.Color(hxMuted)).
+			Padding(0, 1),
+
+		PaletteBox: lipgloss.NewStyle().
+			Border(lipgloss.DoubleBorder()).
+			BorderForeground(lipgloss.Color(hxRust)).
+			Background(lipgloss.Color(paletteBg)).
+			Padding(1, 2),
+
+		PaletteInput: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(hxRust)).
+			Background(lipgloss.Color(paletteBg)),
+
+		PaletteItem: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(hxText)).
+			Background(lipgloss.Color(paletteBg)),
+
+		PaletteSelected: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(hxBg)).
+			Background(lipgloss.Color(hxRust)).
+			Bold(true),
+
+		PathHeader: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(hxRust)).
+			Bold(true),
+
+		MarkedEntry: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(hxGold)).
+			Bold(true),
+
+		Divider: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(hxBorder)),
+
+		Header: lipgloss.NewStyle().
+			Background(lipgloss.Color(hdrBg)),
+
+		HeaderTitle: lipgloss.NewStyle().
+			Background(lipgloss.Color(hdrBg)).
+			Foreground(lipgloss.Color(hxRust)).
+			Bold(true),
+
+		HeaderPath: lipgloss.NewStyle().
+			Background(lipgloss.Color(hdrBg)).
+			Foreground(lipgloss.Color(hxText)),
+
+		HeaderHint: lipgloss.NewStyle().
+			Background(lipgloss.Color(hdrBg)).
+			Foreground(lipgloss.Color(hxMuted)),
+
+		StatusBarAccent: lipgloss.NewStyle().
+			Background(lipgloss.Color(statusBg)).
+			Foreground(lipgloss.Color(hxRust)),
+
+		StatusBarMuted: lipgloss.NewStyle().
+			Background(lipgloss.Color(statusBg)).
+			Foreground(lipgloss.Color(hxMuted)),
+
+		FooterBg: statusBg,
+		FooterKey: lipgloss.NewStyle().
+			Background(lipgloss.Color(statusBg)).
+			Foreground(lipgloss.Color(hxRust)).
+			Bold(true),
+		FooterDesc: lipgloss.NewStyle().
+			Background(lipgloss.Color(statusBg)).
+			Foreground(lipgloss.Color(hxMuted)),
+		FooterHover: lipgloss.NewStyle().
+			Background(lipgloss.Color(hxRust)).
+			Foreground(lipgloss.Color(hxBg)).
+			Bold(true),
+
+		SectionLabel: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(hxRust)).
+			Bold(true),
+
+		MascotStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(hxRust)),
 	}
 }

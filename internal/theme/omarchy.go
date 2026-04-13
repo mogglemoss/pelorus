@@ -197,6 +197,26 @@ func LoadOmarchyTheme() (Theme, bool) {
 		StatusBarMuted: lipgloss.NewStyle().
 			Background(lipgloss.Color(statusBg)).
 			Foreground(lipgloss.Color(dimText)),
+
+		FooterBg: statusBg,
+		FooterKey: lipgloss.NewStyle().
+			Background(lipgloss.Color(statusBg)).
+			Foreground(lipgloss.Color(accent)).
+			Bold(true),
+		FooterDesc: lipgloss.NewStyle().
+			Background(lipgloss.Color(statusBg)).
+			Foreground(lipgloss.Color(dimText)),
+		FooterHover: lipgloss.NewStyle().
+			Background(lipgloss.Color(accent)).
+			Foreground(lipgloss.Color(paneBg)).
+			Bold(true),
+
+		SectionLabel: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(accent)).
+			Bold(true),
+
+		MascotStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(accent)),
 	}, true
 }
 

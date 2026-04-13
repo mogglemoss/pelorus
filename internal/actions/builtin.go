@@ -97,6 +97,9 @@ type JumpMarkMsg struct{}
 // OpenSearchMsg tells the app to open the recursive search overlay.
 type OpenSearchMsg struct{}
 
+// PreviewSearchMsg tells the app to open the inline search bar in the preview pane.
+type PreviewSearchMsg struct{}
+
 // OpenShellMsg tells the app to drop into an interactive shell in the current directory.
 type OpenShellMsg struct{}
 
@@ -276,6 +279,17 @@ func RegisterBuiltins(r *Registry) {
 			Keybinding:  "p",
 			Handler: func(_ AppState) tea.Cmd {
 				return func() tea.Msg { return TogglePreviewMsg{} }
+			},
+		},
+		{
+			ID:          "view.preview-search",
+			Name:        "Search in Preview",
+			Description: "Open inline search bar in the preview pane",
+			Category:    "View",
+			Context:     CtxAlways,
+			Keybinding:  "/",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return PreviewSearchMsg{} }
 			},
 		},
 		{
