@@ -10,6 +10,7 @@ import (
 type Theme struct {
 	ActiveBorder    lipgloss.Style
 	InactiveBorder  lipgloss.Style
+	PreviewBorder   lipgloss.Style
 	Cursor          lipgloss.Style
 	DirName         lipgloss.Style
 	FileName        lipgloss.Style
@@ -89,7 +90,17 @@ func PelorusTheme() Theme {
 			Background(lipgloss.Color(colorBgPane)),
 
 		InactiveBorder: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color(colorBorderInactive)).
+			Background(lipgloss.Color(colorBgPane)),
+
+		PreviewBorder: lipgloss.NewStyle().
+			Border(lipgloss.Border{
+				Top: "╌", Bottom: "╌",
+				Left: "┊", Right: "┊",
+				TopLeft: "╭", TopRight: "╮",
+				BottomLeft: "╰", BottomRight: "╯",
+			}).
 			BorderForeground(lipgloss.Color(colorBorderInactive)).
 			Background(lipgloss.Color(colorBgPane)),
 
@@ -115,7 +126,7 @@ func PelorusTheme() Theme {
 			Padding(0, 1),
 
 		PaletteBox: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.DoubleBorder()).
 			BorderForeground(lipgloss.Color(colorAccent)).
 			Background(lipgloss.Color(colorPaletteBg)).
 			Padding(1, 2),
@@ -186,7 +197,17 @@ func GruvboxTheme() Theme {
 			Background(lipgloss.Color(paneBg)),
 
 		InactiveBorder: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("#504945")).
+			Background(lipgloss.Color(paneBg)),
+
+		PreviewBorder: lipgloss.NewStyle().
+			Border(lipgloss.Border{
+				Top: "╌", Bottom: "╌",
+				Left: "┊", Right: "┊",
+				TopLeft: "╭", TopRight: "╮",
+				BottomLeft: "╰", BottomRight: "╯",
+			}).
 			BorderForeground(lipgloss.Color("#504945")).
 			Background(lipgloss.Color(paneBg)),
 
@@ -212,7 +233,7 @@ func GruvboxTheme() Theme {
 			Padding(0, 1),
 
 		PaletteBox: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.DoubleBorder()).
 			BorderForeground(lipgloss.Color("#fabd2f")).
 			Background(lipgloss.Color("#32302f")).
 			Padding(1, 2),
@@ -283,7 +304,17 @@ func NordTheme() Theme {
 			Background(lipgloss.Color(paneBg)),
 
 		InactiveBorder: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("#434c5e")).
+			Background(lipgloss.Color(paneBg)),
+
+		PreviewBorder: lipgloss.NewStyle().
+			Border(lipgloss.Border{
+				Top: "╌", Bottom: "╌",
+				Left: "┊", Right: "┊",
+				TopLeft: "╭", TopRight: "╮",
+				BottomLeft: "╰", BottomRight: "╯",
+			}).
 			BorderForeground(lipgloss.Color("#434c5e")).
 			Background(lipgloss.Color(paneBg)),
 
@@ -309,7 +340,7 @@ func NordTheme() Theme {
 			Padding(0, 1),
 
 		PaletteBox: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.DoubleBorder()).
 			BorderForeground(lipgloss.Color("#88c0d0")).
 			Background(lipgloss.Color("#3b4252")).
 			Padding(1, 2),
@@ -380,7 +411,17 @@ func LightTheme() Theme {
 			Background(lipgloss.Color(paneBg)),
 
 		InactiveBorder: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("#cccccc")).
+			Background(lipgloss.Color(paneBg)),
+
+		PreviewBorder: lipgloss.NewStyle().
+			Border(lipgloss.Border{
+				Top: "╌", Bottom: "╌",
+				Left: "┊", Right: "┊",
+				TopLeft: "╭", TopRight: "╮",
+				BottomLeft: "╰", BottomRight: "╯",
+			}).
 			BorderForeground(lipgloss.Color("#cccccc")).
 			Background(lipgloss.Color(paneBg)),
 
@@ -406,7 +447,7 @@ func LightTheme() Theme {
 			Padding(0, 1),
 
 		PaletteBox: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.DoubleBorder()).
 			BorderForeground(lipgloss.Color("#0e7c7b")).
 			Background(lipgloss.Color("#ffffff")).
 			Padding(1, 2),

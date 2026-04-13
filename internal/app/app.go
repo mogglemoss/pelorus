@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/fsnotify/fsnotify"
 
 	"github.com/atotto/clipboard"
 
@@ -34,6 +35,9 @@ import (
 
 // tickMsg is sent by the progress ticker every 200ms.
 type tickMsg struct{}
+
+// watchEventMsg is sent when the filesystem watcher detects a change.
+type watchEventMsg struct{ dir string }
 
 // Model is the root Bubbletea model for Pelorus.
 type Model struct {
@@ -65,6 +69,9 @@ type Model struct {
 	multiDeletePending []fileinfo.FileInfo
 
 	store *jump.Store
+
+	watcher       *fsnotify.Watcher
+	watchDebounce map[string]time.Time
 
 	registry *actions.Registry
 	keyMap   map[string]string // key -> actionID, built from registry after all registrations
@@ -119,7 +126,14 @@ func New(
 
 // Init implements tea.Model.
 func (m *Model) Init() tea.Cmd {
-	return nil
+	var err error
+	m.watcher, err = fsnotify.NewWatcher()
+	if err != nil {
+		// Watcher unavailable — run without auto-refresh.
+		return nil
+	}
+	m.updateWatchers()
+	return waitForWatchEvent(m.watcher)
 }
 
 // Update implements tea.Model.
@@ -173,6 +187,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.jumpOpen = false
 		m.store.Visit(msg.Path)
 		_ = m.store.Save()
+		m.updateWatchers()
 		return m, m.updatePreview()
 
 	case jump.CloseJumpMsg:
@@ -293,6 +308,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.activeP().GoHome()
 		m.store.Visit(m.activeP().Path)
 		_ = m.store.Save()
+		m.updateWatchers()
 		return m, m.updatePreview()
 
 	case actions.GotoPathMsg:
@@ -369,6 +385,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		ip.Provider = msg.prov
 		ip.Path = "/"
 		ip.Reload()
+		m.updateWatchers()
 		m.statusMsg = fmt.Sprintf("Connected to %s", msg.alias)
 		return m, nil
 
@@ -382,6 +399,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ops.CloseQueueMsg:
 		m.queueOpen = false
 		return m, nil
+
+	case watchEventMsg:
+		if msg.dir == "" {
+			// Error event — re-arm without reloading.
+			return m, waitForWatchEvent(m.watcher)
+		}
+		// Debounce: skip reloads within 400ms of the last one for this dir.
+		now := time.Now()
+		if m.watchDebounce == nil {
+			m.watchDebounce = make(map[string]time.Time)
+		}
+		if last, ok := m.watchDebounce[msg.dir]; ok && now.Sub(last) < 400*time.Millisecond {
+			return m, waitForWatchEvent(m.watcher)
+		}
+		m.watchDebounce[msg.dir] = now
+		// Reload any pane watching this directory.
+		reloaded := false
+		for _, p := range m.panes {
+			if p.Path == msg.dir && !p.Provider.Capabilities().IsRemote {
+				p.Reload()
+				reloaded = true
+			}
+		}
+		_ = reloaded
+		return m, waitForWatchEvent(m.watcher)
 
 	case tickMsg:
 		var tickCmds []tea.Cmd
@@ -604,6 +646,7 @@ func (m *Model) handleNav(dir string) tea.Cmd {
 		if ap.Path != prevPath {
 			m.store.Visit(ap.Path)
 			_ = m.store.Save()
+			m.updateWatchers()
 		}
 		previewCmd := m.updatePreview()
 		gitCmd := m.updateGitStatus()
@@ -617,6 +660,7 @@ func (m *Model) handleNav(dir string) tea.Cmd {
 		if ap.Path != prevPath {
 			m.store.Visit(ap.Path)
 			_ = m.store.Save()
+			m.updateWatchers()
 		}
 	}
 	return tea.Batch(m.updatePreview(), m.updateGitStatus())
@@ -846,10 +890,52 @@ func (m *Model) ActivePath() string {
 	return m.activeP().Path
 }
 
+// waitForWatchEvent returns a tea.Cmd that blocks until the watcher emits an
+// event, then returns a watchEventMsg for the containing directory.
+func waitForWatchEvent(w *fsnotify.Watcher) tea.Cmd {
+	return func() tea.Msg {
+		select {
+		case event, ok := <-w.Events:
+			if !ok {
+				return nil
+			}
+			return watchEventMsg{dir: filepath.Dir(event.Name)}
+		case _, ok := <-w.Errors:
+			if !ok {
+				return nil
+			}
+			// Swallow watcher errors and re-arm.
+			return watchEventMsg{dir: ""}
+		}
+	}
+}
+
+// updateWatchers syncs the fsnotify watcher with the current pane directories.
+// Only watches local (non-remote) pane paths.
+func (m *Model) updateWatchers() {
+	if m.watcher == nil {
+		return
+	}
+	// Remove all existing watches.
+	for _, p := range m.watcher.WatchList() {
+		_ = m.watcher.Remove(p)
+	}
+	// Add current local pane directories.
+	for _, p := range m.panes {
+		if !p.Provider.Capabilities().IsRemote {
+			_ = m.watcher.Add(p.Path)
+		}
+	}
+}
+
 // closeAllSFTP closes all open SFTP provider connections.
 func (m *Model) closeAllSFTP() {
 	for _, prov := range m.sftpProviders {
 		prov.Close()
+	}
+	if m.watcher != nil {
+		_ = m.watcher.Close()
+		m.watcher = nil
 	}
 }
 

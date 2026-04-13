@@ -591,7 +591,7 @@ func (m *Model) View() string {
 			Copy().
 			Foreground(lipgloss.Color("#00ffd0"))
 	} else {
-		pathStyle = m.Theme.PathHeader
+		pathStyle = m.Theme.PathHeader.Copy().Faint(true)
 	}
 	header := pathStyle.Width(innerW).Render(pathDisplay)
 	sb.WriteString(header)
@@ -722,7 +722,25 @@ func (m *Model) renderEntry(fi fileinfo.FileInfo, selected bool, width int) stri
 		style = m.Theme.FileName
 	}
 
-	rendered := style.Render(baseLine)
+	var rendered string
+	if selected {
+		// Left-border accent: ▌ in bright cyan, rest in cursor background.
+		cursorBg := lipgloss.Color("#0e4060")
+		accentBar := lipgloss.NewStyle().
+			Background(cursorBg).
+			Foreground(lipgloss.Color("#00ffd0")).
+			Render("▌")
+		// Render the body one char narrower to preserve total visual width.
+		body := lipgloss.NewStyle().
+			Background(cursorBg).
+			Foreground(lipgloss.Color("#00ffd0")).
+			Bold(true).
+			Width(baseWidth - 1).
+			Render(baseLine)
+		rendered = accentBar + body
+	} else {
+		rendered = style.Render(baseLine)
+	}
 
 	if hasGit {
 		var glyphColor lipgloss.Color

@@ -139,7 +139,7 @@ func (m *Model) HalfPageUp() {
 
 // View renders the preview pane.
 func (m *Model) View() string {
-	border := m.Theme.InactiveBorder
+	border := m.Theme.PreviewBorder
 
 	innerW := m.Width - 2   // subtract border
 	innerH := m.Height - 2  // subtract border
