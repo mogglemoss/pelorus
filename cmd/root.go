@@ -16,6 +16,7 @@ import (
 )
 
 var cfgFile string
+var themeName string
 
 var rootCmd = &cobra.Command{
 	Use:     "pelorus [path]",
@@ -33,6 +34,7 @@ Usage:
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "f", "", "config file (default: XDG config dir)")
+	rootCmd.PersistentFlags().StringVarP(&themeName, "theme", "t", "", "theme override (pelorus, gruvbox, nord, light, dracula, omarchy)")
 }
 
 // Execute runs the root command.
@@ -91,8 +93,12 @@ func run(cmd *cobra.Command, args []string) error {
 	// Set up provider.
 	prov := local.New()
 
-	// Set up theme.
-	t := theme.Get(cfg.Theme.Name)
+	// Set up theme — flag takes precedence over config.
+	tName := cfg.Theme.Name
+	if themeName != "" {
+		tName = themeName
+	}
+	t := theme.Get(tName)
 
 	// Set up action registry.
 	reg := actions.NewRegistry()
