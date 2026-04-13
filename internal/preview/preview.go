@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -354,8 +355,11 @@ func renderFile(fi *fileinfo.FileInfo, width, height int) (string, error) {
 		return renderDir(fi, innerW, contentLines)
 	}
 
-	// Image files: stub.
+	// Image files: try chafa, fall back to stub.
 	if isImageExt(filepath.Ext(fi.Name)) {
+		if img, err := renderChafa(fi.Path, innerW, contentLines); err == nil {
+			return img, nil
+		}
 		return renderImageStub(fi)
 	}
 
@@ -503,9 +507,24 @@ func renderFileInfo(fi *fileinfo.FileInfo) string {
 	)
 }
 
+// renderChafa renders an image using the chafa terminal graphics tool.
+// Returns an error if chafa is not installed or the command fails.
+func renderChafa(path string, width, height int) (string, error) {
+	if _, err := exec.LookPath("chafa"); err != nil {
+		return "", fmt.Errorf("chafa not found")
+	}
+	size := fmt.Sprintf("%dx%d", width, height)
+	cmd := exec.Command("chafa", "--size", size, "--colors", "full", path)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(string(out), "\n"), nil
+}
+
 func isImageExt(ext string) bool {
 	switch strings.ToLower(ext) {
-	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp":
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".tiff", ".tif", ".ico", ".heic", ".avif":
 		return true
 	}
 	return false

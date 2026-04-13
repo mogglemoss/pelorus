@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/mogglemoss/pelorus/internal/preview"
 	"github.com/mogglemoss/pelorus/internal/provider"
 	sftpprov "github.com/mogglemoss/pelorus/internal/provider/sftp"
+	"github.com/mogglemoss/pelorus/internal/search"
 	"github.com/mogglemoss/pelorus/internal/theme"
 	"github.com/mogglemoss/pelorus/pkg/fileinfo"
 )
@@ -67,13 +69,20 @@ type Model struct {
 	tickerRunning bool
 
 	// Huh overlay
-	huhOverlay     *huh.Form
-	huhMode        string // "delete" | "bulk-rename"
-	huhConfirm     bool
+	huhOverlay    *huh.Form
+	huhMode       string // "delete"
+	huhConfirm    bool
 	huhDeleteItems []fileinfo.FileInfo
-	huhRenameItems []fileinfo.FileInfo
-	huhRenameNames []string
 	huhInputValue  string // rename / new-file / new-dir single-input overlays
+
+	// Session marks: m<key> to set, '<key> to jump.
+	marks       map[rune]string // key → path
+	markPending bool            // true = waiting for mark key
+	jumpPending bool            // true = waiting for jump key
+
+	// Search overlay.
+	searchModel *search.Model
+	searchOpen  bool
 
 	store *jump.Store
 
@@ -85,8 +94,13 @@ type Model struct {
 	cfg      *config.Config
 	theme    *theme.Theme
 
-	width  int
-	height int
+	width      int
+	height     int
+	splitRatio float64 // left-pane share of usable width (0.0–1.0); 0 = 50/50
+
+	// Run-command prompt state.
+	cmdPromptOpen bool
+	cmdPromptBuf  string
 
 	statusMsg string // transient message shown in status bar
 	gitBranch string // current git branch for active pane's repo
@@ -119,6 +133,8 @@ func New(
 	m.connectModel, _ = connect.NewModel(t) // ignore error (empty hosts ok)
 	m.sftpProviders = make(map[string]*sftpprov.Provider)
 	m.helpModel = help.New(reg, t)
+	m.marks = make(map[rune]string)
+	m.searchModel = search.New(t)
 
 	// Load jump store (ignore error — use empty store on failure).
 	store, _ := jump.LoadStore()
@@ -163,6 +179,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.helpModel.Width = msg.Width
 		m.helpModel.Height = msg.Height
+		m.searchModel.Width = msg.Width
+		m.searchModel.Height = msg.Height
 		return m, tea.Batch(m.updatePreview(), m.updateGitStatus())
 	}
 
@@ -324,6 +342,77 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case actions.ResizeSplitMsg:
+		if m.showPreview {
+			return m, nil // resize not applicable in three-pane mode
+		}
+		ratio := m.splitRatio
+		if ratio <= 0 || ratio >= 1 {
+			ratio = 0.5
+		}
+		ratio += float64(msg.Delta) / 100.0
+		if ratio < 0.1 {
+			ratio = 0.1
+		}
+		if ratio > 0.9 {
+			ratio = 0.9
+		}
+		m.splitRatio = ratio
+		m.layoutPanes()
+		return m, nil
+
+	case actions.OpenShellMsg:
+		shell := os.Getenv("SHELL")
+		if shell == "" {
+			shell = "sh"
+		}
+		dir := m.activeP().Path
+		cmd := exec.Command(shell)
+		cmd.Dir = dir
+		return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+			return nil
+		})
+
+	case actions.RunCommandMsg:
+		sel := m.activeP().Selected()
+		if sel == nil {
+			return m, nil
+		}
+		m.cmdPromptOpen = true
+		m.cmdPromptBuf = ""
+		m.statusMsg = "! run: "
+		return m, nil
+
+	case actions.QuickLookMsg:
+		sel := m.activeP().Selected()
+		if sel == nil {
+			return m, nil
+		}
+		if err := exec.Command("qlmanage", "-p", sel.Path).Start(); err != nil {
+			m.statusMsg = "Quick Look unavailable"
+		}
+		return m, nil
+
+	case actions.OpenWithMsg:
+		sel := m.activeP().Selected()
+		if sel == nil {
+			return m, nil
+		}
+		var cmd *exec.Cmd
+		switch runtime.GOOS {
+		case "darwin":
+			cmd = exec.Command("open", sel.Path)
+		case "linux":
+			cmd = exec.Command("xdg-open", sel.Path)
+		default:
+			m.statusMsg = "Open with not supported on this OS"
+			return m, nil
+		}
+		if err := cmd.Start(); err != nil {
+			m.statusMsg = "Open failed: " + err.Error()
+		}
+		return m, nil
+
 	case actions.DeleteSelectedMsg:
 		ap := m.activeP()
 		entries := ap.SelectedEntries()
@@ -358,51 +447,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, f.Init()
 
 	case actions.BulkRenameMsg:
-		ap := m.activeP()
-		items := ap.SelectedEntries()
+		items := m.activeP().SelectedEntries()
+		if len(items) == 0 {
+			if sel := m.activeP().Selected(); sel != nil {
+				items = []fileinfo.FileInfo{*sel}
+			}
+		}
 		if len(items) < 2 {
 			m.statusMsg = "Select 2 or more items to bulk rename (space to select)"
 			return m, nil
 		}
-		const maxBulk = 10
-		if len(items) > maxBulk {
-			items = items[:maxBulk]
-			m.statusMsg = fmt.Sprintf("Bulk rename limited to %d items", maxBulk)
-		}
-		m.huhRenameItems = items
-		m.huhRenameNames = make([]string, len(items))
-		for i, item := range items {
-			m.huhRenameNames[i] = item.Name
-		}
-		m.huhMode = "bulk-rename"
-
-		var fields []huh.Field
-		for i := range items {
-			idx := i // capture loop variable
-			fields = append(fields, huh.NewInput().
-				Title(items[idx].Name).
-				Value(&m.huhRenameNames[idx]).
-				Validate(func(s string) error {
-					if strings.TrimSpace(s) == "" {
-						return fmt.Errorf("name cannot be empty")
-					}
-					if strings.Contains(s, "/") {
-						return fmt.Errorf("name cannot contain /")
-					}
-					for j, name := range m.huhRenameNames {
-						if j != idx && name == s {
-							return fmt.Errorf("duplicate name")
-						}
-					}
-					return nil
-				}),
-			)
-		}
-		f := huh.NewForm(huh.NewGroup(fields...)).
-			WithTheme(m.huhTheme()).
-			WithWidth(64)
-		m.huhOverlay = f
-		return m, f.Init()
+		return m, m.startEditorRename(items)
 
 	case actions.RenameSelectedMsg:
 		sel := m.activeP().Selected()
@@ -537,6 +592,49 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case help.CloseHelpMsg:
 		m.helpOpen = false
 		return m, nil
+
+	// --- Marks messages ---
+	case actions.SetMarkMsg:
+		m.markPending = true
+		m.statusMsg = "Mark: press key…"
+		return m, nil
+
+	case actions.JumpMarkMsg:
+		m.jumpPending = true
+		m.statusMsg = "Jump to mark: press key…"
+		return m, nil
+
+	// --- Search messages ---
+	case actions.OpenSearchMsg:
+		m.searchModel.Width = m.width
+		m.searchModel.Height = m.height
+		m.searchOpen = true
+		openCmd := m.searchModel.Open(m.activeP().Path)
+		searchCmd := search.RunSearch(m.activeP().Path)
+		return m, tea.Batch(openCmd, searchCmd)
+
+	case search.SearchDoneMsg:
+		m.searchModel.SetResults(msg.Paths)
+		return m, nil
+
+	case search.ResultMsg:
+		m.searchOpen = false
+		// Navigate to the directory containing the result, then select the file.
+		dir := msg.Path
+		// If it's a file, navigate to its parent.
+		info, err := os.Stat(msg.Path)
+		if err == nil && !info.IsDir() {
+			dir = filepath.Dir(msg.Path)
+		}
+		return m, m.navigateTo(dir)
+
+	case search.CloseSearchMsg:
+		m.searchOpen = false
+		return m, nil
+
+	// --- Editor rename messages ---
+	case editorRenameMsg:
+		return m, m.applyEditorRename(msg)
 
 	case connect.TsNodesMsg:
 		if m.connectModel != nil {
@@ -688,6 +786,58 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// If search overlay is open, route all keys there.
+	if m.searchOpen {
+		updated, cmd := m.searchModel.Update(msg)
+		m.searchModel = updated
+		return m, cmd
+	}
+
+	// If run-command prompt is open, accumulate input.
+	if m.cmdPromptOpen {
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.cmdPromptOpen = false
+			m.cmdPromptBuf = ""
+			m.statusMsg = "Cancelled"
+			return m, nil
+		case tea.KeyEnter:
+			cmdStr := strings.TrimSpace(m.cmdPromptBuf)
+			m.cmdPromptOpen = false
+			m.cmdPromptBuf = ""
+			m.statusMsg = ""
+			if cmdStr == "" {
+				return m, nil
+			}
+			sel := m.activeP().Selected()
+			var arg string
+			if sel != nil {
+				arg = sel.Path
+			}
+			shell := os.Getenv("SHELL")
+			if shell == "" {
+				shell = "sh"
+			}
+			cmd := exec.Command(shell, "-c", cmdStr+" "+arg)
+			cmd.Dir = m.activeP().Path
+			return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+				return nil
+			})
+		case tea.KeyBackspace, tea.KeyDelete:
+			if len(m.cmdPromptBuf) > 0 {
+				m.cmdPromptBuf = m.cmdPromptBuf[:len(m.cmdPromptBuf)-1]
+				m.statusMsg = "! run: " + m.cmdPromptBuf
+			}
+			return m, nil
+		default:
+			if msg.Type == tea.KeyRunes {
+				m.cmdPromptBuf += string(msg.Runes)
+				m.statusMsg = "! run: " + m.cmdPromptBuf
+			}
+			return m, nil
+		}
+	}
+
 	// If palette is open, send to palette.
 	if m.paletteOpen {
 		var cmd tea.Cmd
@@ -711,6 +861,28 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	key := msg.String()
+
+	// Handle two-step mark commands.
+	if m.markPending {
+		m.markPending = false
+		r := []rune(key)
+		if len(r) == 1 {
+			m.marks[r[0]] = m.activeP().Path
+			m.statusMsg = fmt.Sprintf("Marked '%c' → %s", r[0], m.activeP().Path)
+		}
+		return m, nil
+	}
+	if m.jumpPending {
+		m.jumpPending = false
+		r := []rune(key)
+		if len(r) == 1 {
+			if path, ok := m.marks[r[0]]; ok {
+				return m, m.navigateTo(path)
+			}
+			m.statusMsg = fmt.Sprintf("No mark '%c'", r[0])
+		}
+		return m, nil
+	}
 
 	// Preview scroll keys — handled before action dispatch.
 	if m.showPreview {
@@ -853,6 +1025,17 @@ func (m *Model) handleNav(dir string) tea.Cmd {
 			m.updateWatchers()
 		}
 	}
+	return tea.Batch(m.updatePreview(), m.updateGitStatus())
+}
+
+// navigateTo navigates the active pane to the given path.
+func (m *Model) navigateTo(path string) tea.Cmd {
+	ap := m.activeP()
+	ap.Path = path
+	ap.Reload()
+	m.store.Visit(path)
+	_ = m.store.Save()
+	m.updateWatchers()
 	return tea.Batch(m.updatePreview(), m.updateGitStatus())
 }
 
@@ -1187,11 +1370,22 @@ func (m *Model) layoutPanes() {
 		// Sync viewport inside preview (border=2, header+sep=2).
 		m.previewModel.SetViewportSize(previewW-2, paneH-4)
 	} else {
-		// Two-pane layout: 50/50 with one divider.
-		halfW := (m.width - 1) / 2
-		m.panes[0].Width = halfW
+		// Two-pane layout: splitRatio controls left share (default 50/50).
+		usable := m.width - 1 // one divider
+		ratio := m.splitRatio
+		if ratio <= 0 || ratio >= 1 {
+			ratio = 0.5
+		}
+		leftW := int(float64(usable) * ratio)
+		if leftW < 10 {
+			leftW = 10
+		}
+		if leftW > usable-10 {
+			leftW = usable - 10
+		}
+		m.panes[0].Width = leftW
 		m.panes[0].Height = paneH
-		m.panes[1].Width = m.width - halfW - 1
+		m.panes[1].Width = usable - leftW
 		m.panes[1].Height = paneH
 	}
 }
@@ -1257,12 +1451,16 @@ func (m *Model) View() string {
 		screen = overlayCenter(screen, connectView, m.width, m.height)
 	}
 
-	// Overlay Huh form (delete confirm, bulk rename) if active.
+	// Overlay search if open.
+	if m.searchOpen {
+		searchView := m.searchModel.View()
+		screen = overlayCenter(screen, searchView, m.width, m.height)
+	}
+
+	// Overlay Huh form (delete confirm, rename, new file/dir) if active.
 	if m.huhOverlay != nil {
 		label := "Confirm"
 		switch m.huhMode {
-		case "bulk-rename":
-			label = fmt.Sprintf("Bulk Rename — %d items", len(m.huhRenameItems))
 		case "delete":
 			label = "Delete"
 		case "rename":
@@ -1427,8 +1625,6 @@ func (m *Model) onHuhComplete() tea.Cmd {
 		}
 		m.statusMsg = "Cancelled"
 		return nil
-	case "bulk-rename":
-		return m.executeBulkRename()
 	case "rename":
 		return m.executeRename(m.huhInputValue)
 	case "new-file":
@@ -1453,33 +1649,6 @@ func (m *Model) executeDelete(items []fileinfo.FileInfo) tea.Cmd {
 	m.statusMsg = fmt.Sprintf("Deleting %d item(s)…", len(items))
 	cmds = append(cmds, m.startProgressTicker())
 	return tea.Batch(cmds...)
-}
-
-// executeBulkRename performs all pending renames from the Huh bulk-rename form.
-func (m *Model) executeBulkRename() tea.Cmd {
-	ap := m.activeP()
-	renamed := 0
-	var errMsgs []string
-	for i, item := range m.huhRenameItems {
-		newName := m.huhRenameNames[i]
-		if newName == item.Name {
-			continue
-		}
-		newPath := filepath.Join(ap.Path, newName)
-		if err := ap.Provider.Rename(item.Path, newPath); err != nil {
-			errMsgs = append(errMsgs, err.Error())
-		} else {
-			renamed++
-		}
-	}
-	ap.ClearSelection()
-	ap.Reload()
-	if len(errMsgs) > 0 {
-		m.statusMsg = fmt.Sprintf("Renamed %d; %d error(s)", renamed, len(errMsgs))
-	} else if renamed > 0 {
-		m.statusMsg = fmt.Sprintf("Renamed %d item(s)", renamed)
-	}
-	return nil
 }
 
 func (m *Model) executeRename(newName string) tea.Cmd {
@@ -1532,6 +1701,107 @@ func (m *Model) executeNewDir(name string) tea.Cmd {
 	}
 	ap.Reload()
 	m.updateWatchers()
+	return m.updatePreview()
+}
+
+// editorRenameMsg is sent by tea.ExecProcess after the user exits the editor.
+type editorRenameMsg struct {
+	tmpPath   string
+	origItems []fileinfo.FileInfo
+}
+
+// startEditorRename opens $EDITOR with a temp file of filenames for bulk rename.
+func (m *Model) startEditorRename(items []fileinfo.FileInfo) tea.Cmd {
+	tmp, err := os.CreateTemp("", "pelorus-rename-*.txt")
+	if err != nil {
+		m.statusMsg = "Rename failed: " + err.Error()
+		return nil
+	}
+	header := "# Rename: edit filenames below, one per line.\n# Do not add or remove lines.\n# Save and exit to apply. Empty file or unchanged = no renames.\n\n"
+	if _, err := tmp.WriteString(header); err != nil {
+		tmp.Close()
+		return nil
+	}
+	for _, item := range items {
+		if _, err := tmp.WriteString(item.Name + "\n"); err != nil {
+			tmp.Close()
+			return nil
+		}
+	}
+	tmp.Close()
+	tmpPath := tmp.Name()
+
+	editor := m.cfg.General.Editor
+	if editor == "" {
+		editor = os.Getenv("EDITOR")
+	}
+	if editor == "" {
+		editor = os.Getenv("VISUAL")
+	}
+	if editor == "" {
+		editor = "vi"
+	}
+
+	origItems := make([]fileinfo.FileInfo, len(items))
+	copy(origItems, items)
+
+	return tea.ExecProcess(exec.Command(editor, tmpPath), func(err error) tea.Msg {
+		if err != nil {
+			os.Remove(tmpPath)
+			return pane.ErrMsg{Err: fmt.Errorf("editor: %w", err)}
+		}
+		return editorRenameMsg{tmpPath: tmpPath, origItems: origItems}
+	})
+}
+
+// applyEditorRename reads the temp file and applies the renames.
+func (m *Model) applyEditorRename(msg editorRenameMsg) tea.Cmd {
+	defer os.Remove(msg.tmpPath)
+	data, err := os.ReadFile(msg.tmpPath)
+	if err != nil {
+		m.statusMsg = "Rename failed: " + err.Error()
+		return nil
+	}
+	var newNames []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		newNames = append(newNames, line)
+	}
+	if len(newNames) != len(msg.origItems) {
+		m.statusMsg = fmt.Sprintf("Rename cancelled: expected %d names, got %d", len(msg.origItems), len(newNames))
+		return nil
+	}
+	ap := m.activeP()
+	renamed := 0
+	var errs []string
+	for i, item := range msg.origItems {
+		newName := strings.TrimSpace(newNames[i])
+		if newName == item.Name || newName == "" {
+			continue
+		}
+		dst := filepath.Join(ap.Path, newName)
+		if err := ap.Provider.Rename(item.Path, dst); err != nil {
+			errs = append(errs, err.Error())
+		} else {
+			renamed++
+		}
+	}
+	ap.ClearSelection()
+	ap.Reload()
+	m.updateWatchers()
+	if len(errs) > 0 {
+		m.statusMsg = fmt.Sprintf("Renamed %d, %d errors: %s", renamed, len(errs), errs[0])
+	} else if renamed > 0 {
+		m.statusMsg = fmt.Sprintf("Renamed %d item(s)", renamed)
+	} else {
+		m.statusMsg = "No changes"
+	}
 	return m.updatePreview()
 }
 

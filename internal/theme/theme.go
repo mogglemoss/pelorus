@@ -192,7 +192,7 @@ func PelorusTheme() Theme {
 
 		HeaderHint: lipgloss.NewStyle().
 			Background(lipgloss.Color(hdrBg)).
-			Foreground(lipgloss.Color("#052424")),
+			Foreground(lipgloss.Color("#b0d8d8")),
 
 		StatusBarAccent: lipgloss.NewStyle().
 			Background(lipgloss.Color(colorStatus)).
@@ -221,7 +221,7 @@ func GruvboxTheme() Theme {
 
 		InactiveBorder: lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("#504945")).
+			BorderForeground(lipgloss.Color("#a89984")).
 			Background(lipgloss.Color(paneBg)),
 
 		PreviewBorder: lipgloss.NewStyle().
@@ -231,7 +231,7 @@ func GruvboxTheme() Theme {
 				TopLeft: "╭", TopRight: "╮",
 				BottomLeft: "╰", BottomRight: "╯",
 			}).
-			BorderForeground(lipgloss.Color("#504945")).
+			BorderForeground(lipgloss.Color("#a89984")).
 			Background(lipgloss.Color(paneBg)),
 
 		Cursor: lipgloss.NewStyle().
@@ -283,7 +283,7 @@ func GruvboxTheme() Theme {
 			Bold(true),
 
 		Divider: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#504945")),
+			Foreground(lipgloss.Color("#a89984")),
 
 		Header: lipgloss.NewStyle().
 			Background(lipgloss.Color(hdrBg)),
@@ -299,7 +299,7 @@ func GruvboxTheme() Theme {
 
 		HeaderHint: lipgloss.NewStyle().
 			Background(lipgloss.Color(hdrBg)).
-			Foreground(lipgloss.Color("#504945")),
+			Foreground(lipgloss.Color("#a89984")),
 
 		StatusBarAccent: lipgloss.NewStyle().
 			Background(lipgloss.Color("#1d2021")).
@@ -406,7 +406,7 @@ func NordTheme() Theme {
 
 		HeaderHint: lipgloss.NewStyle().
 			Background(lipgloss.Color(hdrBg)).
-			Foreground(lipgloss.Color("#434c5e")),
+			Foreground(lipgloss.Color("#7b8898")),
 
 		StatusBarAccent: lipgloss.NewStyle().
 			Background(lipgloss.Color("#242933")).
@@ -513,7 +513,7 @@ func LightTheme() Theme {
 
 		HeaderHint: lipgloss.NewStyle().
 			Background(lipgloss.Color(hdrBg)).
-			Foreground(lipgloss.Color("#052424")),
+			Foreground(lipgloss.Color("#b0d8d8")),
 
 		StatusBarAccent: lipgloss.NewStyle().
 			Background(lipgloss.Color("#e0e0e0")).
@@ -622,7 +622,7 @@ func DraculaTheme() Theme {
 
 		HeaderHint: lipgloss.NewStyle().
 			Background(lipgloss.Color(hdrBg)).
-			Foreground(lipgloss.Color("#282A36")),
+			Foreground(lipgloss.Color("#6272A4")),
 
 		StatusBarAccent: lipgloss.NewStyle().
 			Background(lipgloss.Color(statusBg)).
@@ -731,7 +731,7 @@ func CatppuccinTheme() Theme {
 
 		HeaderHint: lipgloss.NewStyle().
 			Background(lipgloss.Color(hdrBg)).
-			Foreground(lipgloss.Color("#1e1e2e")),
+			Foreground(lipgloss.Color("#6c7086")),
 
 		StatusBarAccent: lipgloss.NewStyle().
 			Background(lipgloss.Color(statusBg)).

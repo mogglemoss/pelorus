@@ -21,7 +21,8 @@ Dual-pane TUI file manager. Local filesystem. SFTP remotes. Tailscale nodes. Arc
 
 **Dual pane**
 - Left and right panes, always visible — not a mode, not a toggle, just there
-- `tab` to switch; `C` / `F5` to copy across; `m` / `F6` to move across
+- `tab` to switch; `C` / `F5` to copy across; `M` / `F6` to move across
+- `<` / `>` to resize the split on the fly
 - Background job queue (`J`) with animated progress bars and speed/ETA — operations never block the UI
 - Multi-select with `space` — mark items across directories, then copy/move/delete the whole set at once
 
@@ -31,11 +32,22 @@ Dual-pane TUI file manager. Local filesystem. SFTP remotes. Tailscale nodes. Arc
 - `g` opens the jump list — frecency-ranked, fuzzy-searchable, persistent
 - `B` to pin the current directory; `~` to go home; `ctrl+l` to type a path directly
 - `s` cycles sort order per pane: name → size → date → extension
+- `m<key>` sets a named mark on the current directory; `'<key>` jumps back to it instantly (session-scoped)
+- `ctrl+f` opens a recursive file search overlay — backed by `fd` (or `find` as fallback), live fuzzy filtering as you type
 
 **Preview pane**
 - `p` toggles a third panel: syntax-highlighted code via Chroma, rendered Markdown via Glamour, file metadata for everything else
-- Scrollable with `]` / `[`
+- Images rendered as pixel-art in the terminal via [chafa](https://hpjansson.org/chafa/) when installed (`brew install chafa`); falls back to file metadata otherwise
+- Scrollable with `]` / `[`; inline search with `/` (`n`/`N` to cycle matches)
 - Loads asynchronously — the pane spinner tells you it's working
+
+**File operations**
+- `o` opens a file with the OS default application (`open` on macOS, `xdg-open` on Linux)
+- `!` prompts for a shell command; runs it with the selected file as the argument
+- `S` drops into an interactive shell in the current directory; the UI resumes on exit
+- `ctrl+space` opens macOS Quick Look on the selected file
+- `R` opens `$EDITOR` with all selected filenames listed — edit the names, save, quit; renames are applied automatically
+- `F4` opens the selected file in your configured editor
 
 **Git awareness**
 - File-level status glyphs inline in the file list: `M` modified · `A` staged · `D` deleted · `?` untracked
@@ -69,8 +81,8 @@ Dual-pane TUI file manager. Local filesystem. SFTP remotes. Tailscale nodes. Arc
 
 **Theming**
 - Built-in *retrofuture subaquatic* theme — bioluminescent teal, ocean dark, phosphor cyan
-- Three additional themes: `gruvbox`, `nord`, `light`
-- Set in config; switch without restarting
+- Five additional themes: `gruvbox`, `nord`, `light`, `dracula`, `catppuccin`
+- `--theme` / `-t` flag to set at launch; or set in config
 
 ---
 
@@ -93,6 +105,17 @@ go build -o pelorus .
 
 No CGO. No runtime dependencies. One binary.
 
+### Optional: image preview
+
+Install [chafa](https://hpjansson.org/chafa/) to render images in the preview pane:
+
+```bash
+brew install chafa          # macOS
+sudo apt install chafa      # Debian/Ubuntu
+```
+
+Without chafa, pelorus shows file metadata for images instead — everything else works fine.
+
 ---
 
 ## Usage
@@ -103,6 +126,7 @@ pelorus [path] [flags]
   path              Directory to open (default: current directory)
 
   -f, --config      Config file path (default: XDG config dir)
+  -t, --theme       Theme name: pelorus · gruvbox · nord · light · dracula · catppuccin
       --version     Print version and exit
 ```
 
@@ -127,6 +151,9 @@ Set `start_dir = "last"` in config to always reopen where you left off.
 | `~` | Go to home directory |
 | `ctrl+l` | Go to path (type any path) |
 | `s` | Cycle sort: name → size → date → ext |
+| `ctrl+f` | Recursive file search |
+| `m<key>` | Set mark on current directory |
+| `'<key>` | Jump to mark |
 
 ### File Operations
 
@@ -134,15 +161,20 @@ Set `start_dir = "last"` in config to always reopen where you left off.
 |-----|--------|
 | `space` | Toggle selection (multi-select) |
 | `C` / `F5` | Copy selected (or all marked) to other pane |
-| `m` / `F6` | Move selected (or all marked) to other pane |
+| `M` / `F6` | Move selected (or all marked) to other pane |
 | `F8` | Move to trash (OS trash on macOS/Linux) |
 | `d` / `⇧F8` | Permanent delete |
 | `r` | Rename |
+| `R` | Bulk rename in editor |
 | `n` / `⇧F7` | New file |
 | `N` / `F7` | New directory |
 | `F4` | Open in editor |
+| `!` | Run shell command on selected file |
+| `o` | Open with default application |
+| `ctrl+space` | Quick Look (macOS) |
 | `y` | Copy full path to clipboard |
 | `Y` | Copy filename to clipboard |
+| `ctrl+r` | Reveal in Finder (macOS) |
 
 ### View
 
@@ -150,8 +182,10 @@ Set `start_dir = "last"` in config to always reopen where you left off.
 |-----|--------|
 | `p` | Toggle preview pane |
 | `]` / `[` | Scroll preview down / up |
+| `/` | Search within preview |
 | `.` | Toggle hidden files |
 | `J` | Job queue |
+| `<` / `>` | Shrink / grow left pane |
 
 ### App
 
@@ -159,6 +193,7 @@ Set `start_dir = "last"` in config to always reopen where you left off.
 |-----|--------|
 | `ctrl+p` / `:` | Command palette |
 | `c` | Connect to SSH / Tailscale host |
+| `S` | Drop into shell in current directory |
 | `B` | Bookmark current directory |
 | `?` | Keybinding reference |
 | `q` | Quit |
@@ -191,6 +226,7 @@ Template variables: `{path}` full path, `{name}` filename, `{dir}` containing di
 | Styling | [Lipgloss](https://github.com/charmbracelet/lipgloss) |
 | Syntax highlighting | [Chroma](https://github.com/alecthomas/chroma) |
 | Markdown rendering | [Glamour](https://github.com/charmbracelet/glamour) |
+| Image preview | [chafa](https://hpjansson.org/chafa/) (optional, auto-detected) |
 | Fuzzy matching | [sahilm/fuzzy](https://github.com/sahilm/fuzzy) — in-process, no fzf binary |
 | SFTP | [pkg/sftp](https://github.com/pkg/sftp) + [x/crypto/ssh](https://golang.org/x/crypto) |
 | Tailscale | [tailscale.com/client/tailscale](https://pkg.go.dev/tailscale.com/client/tailscale) local socket |
@@ -198,6 +234,7 @@ Template variables: `{path}` full path, `{name}` filename, `{dir}` containing di
 | Archive formats | `.zip` · `.tar` · `.tar.gz` · `.tar.bz2` · `.tar.xz` — pure Go |
 | Jump list | Frecency scoring · XDG data dir · JSON |
 | Clipboard | [atotto/clipboard](https://github.com/atotto/clipboard) — CGO-free |
+| File search | `fd` preferred, `find` fallback — no Go dependency |
 | CGO | Disabled. One static binary. |
 | Platforms | macOS · Linux (Tier 1) · Windows (Tier 2) |
 
@@ -210,8 +247,9 @@ Pelorus steals thoughtfully from:
 | Source | What we took |
 |--------|-------------|
 | [Marta](https://marta.sh) | Action palette as spine, dual pane as default, archive-as-directory, job queue |
+| [ranger](https://github.com/ranger/ranger) | Shell integration (`S`), run-command (`!`), marks (`m`/`'`) |
 | [lf](https://github.com/gokcehan/lf) | Async IO pattern, nav/eval/ui separation |
-| [yazi](https://github.com/sxyazi/yazi) | Fuzzy-everywhere as interaction model, preview depth |
+| [yazi](https://github.com/sxyazi/yazi) | Fuzzy-everywhere as interaction model, preview depth, chafa image rendering |
 | [zoxide](https://github.com/ajeetdsouza/zoxide) | Auto-ranked jump list |
 
 ---

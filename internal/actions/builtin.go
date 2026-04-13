@@ -88,6 +88,30 @@ type BulkRenameMsg struct{}
 // RevealInFinderMsg tells the app to reveal the selected item in macOS Finder.
 type RevealInFinderMsg struct{}
 
+// SetMarkMsg tells the app to enter mark-set mode (waiting for key).
+type SetMarkMsg struct{}
+
+// JumpMarkMsg tells the app to enter mark-jump mode (waiting for key).
+type JumpMarkMsg struct{}
+
+// OpenSearchMsg tells the app to open the recursive search overlay.
+type OpenSearchMsg struct{}
+
+// OpenShellMsg tells the app to drop into an interactive shell in the current directory.
+type OpenShellMsg struct{}
+
+// RunCommandMsg tells the app to run a shell command on the selected file.
+type RunCommandMsg struct{}
+
+// QuickLookMsg tells the app to open the selected file in macOS Quick Look.
+type QuickLookMsg struct{}
+
+// OpenWithMsg tells the app to open the selected file with the OS default application.
+type OpenWithMsg struct{}
+
+// ResizeSplitMsg tells the app to grow or shrink the left pane.
+type ResizeSplitMsg struct{ Delta int } // negative = shrink, positive = grow
+
 // RegisterBuiltins registers the standard set of built-in actions.
 func RegisterBuiltins(r *Registry) {
 	builtins := []Action{
@@ -218,7 +242,7 @@ func RegisterBuiltins(r *Registry) {
 			Description: "Move selected file to the other pane's directory",
 			Category:    "File",
 			Context:     CtxFileSelected,
-			Keybinding:  "m",
+			Keybinding:  "M",
 			Handler: func(_ AppState) tea.Cmd {
 				return func() tea.Msg { return MoveSelectedMsg{} }
 			},
@@ -474,6 +498,105 @@ func RegisterBuiltins(r *Registry) {
 			Keybinding:  "ctrl+r",
 			Handler: func(_ AppState) tea.Cmd {
 				return func() tea.Msg { return RevealInFinderMsg{} }
+			},
+		},
+		{
+			ID:          "nav.set-mark",
+			Name:        "Set Mark",
+			Description: "Mark current directory with a key (then press any key)",
+			Category:    "Navigation",
+			Context:     CtxAlways,
+			Keybinding:  "m",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return SetMarkMsg{} }
+			},
+		},
+		{
+			ID:          "nav.jump-mark",
+			Name:        "Jump to Mark",
+			Description: "Jump to a marked directory (then press the mark key)",
+			Category:    "Navigation",
+			Context:     CtxAlways,
+			Keybinding:  "'",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return JumpMarkMsg{} }
+			},
+		},
+		{
+			ID:          "nav.search",
+			Name:        "Search Files",
+			Description: "Recursively search files in current directory",
+			Category:    "Navigation",
+			Context:     CtxAlways,
+			Keybinding:  "ctrl+f",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return OpenSearchMsg{} }
+			},
+		},
+		{
+			ID:          "app.shell",
+			Name:        "Open Shell",
+			Description: "Drop into an interactive shell in the current directory",
+			Category:    "App",
+			Context:     CtxAlways,
+			Keybinding:  "S",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return OpenShellMsg{} }
+			},
+		},
+		{
+			ID:          "file.run-command",
+			Name:        "Run Command",
+			Description: "Run a shell command with the selected file as argument",
+			Category:    "File",
+			Context:     CtxFileSelected,
+			Keybinding:  "!",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return RunCommandMsg{} }
+			},
+		},
+		{
+			ID:          "file.quick-look",
+			Name:        "Quick Look",
+			Description: "Preview file with macOS Quick Look",
+			Category:    "File",
+			Context:     CtxFileSelected,
+			Keybinding:  "ctrl+space",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return QuickLookMsg{} }
+			},
+		},
+		{
+			ID:          "file.open-with",
+			Name:        "Open With Default App",
+			Description: "Open selected file with the OS default application",
+			Category:    "File",
+			Context:     CtxFileSelected,
+			Keybinding:  "o",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return OpenWithMsg{} }
+			},
+		},
+		{
+			ID:          "view.split-grow",
+			Name:        "Grow Left Pane",
+			Description: "Increase the left pane width",
+			Category:    "View",
+			Context:     CtxAlways,
+			Keybinding:  ">",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return ResizeSplitMsg{Delta: +5} }
+			},
+		},
+		{
+			ID:          "view.split-shrink",
+			Name:        "Shrink Left Pane",
+			Description: "Decrease the left pane width",
+			Category:    "View",
+			Context:     CtxAlways,
+			Keybinding:  "<",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return ResizeSplitMsg{Delta: -5} }
 			},
 		},
 	}
