@@ -8,109 +8,178 @@ Set FontSize 14
 Set FontFamily "JetBrainsMono Nerd Font"
 Set Width 1400
 Set Height 800
-Set Theme "Dark+"
+Set Theme "Dracula"
 Set PlaybackSpeed 1.0
 Set TypingSpeed 80ms
 
-# Launch pelorus in the repo directory
+# Launch with gruvbox theme
 Hide
-Type "cd /Users/scott/Documents/development/pelorus && /Users/scott/go/bin/pelorus ."
+Type "/Users/scott/go/bin/pelorus /Users/scott/Documents/development/pelorus --theme gruvbox"
 Enter
 Sleep 4s
 Show
 
-# Browse around — navigate into internal
+# Cursor starts on assets/ — navigate down to README.md
+# Root order (dirs first): assets cmd docs internal pkg | go.mod go.sum LICENSE main.go pelorus pelorus.tape README.md
 Sleep 500ms
 Type "j"
-Sleep 200ms
+Sleep 100ms
 Type "j"
-Sleep 200ms
+Sleep 100ms
 Type "j"
-Sleep 200ms
-Type "l"
-Sleep 1s
-
-# Toggle preview pane
-Type "p"
+Sleep 100ms
+Type "j"
+Sleep 100ms
+Type "j"
+Sleep 100ms
+Type "j"
+Sleep 100ms
+Type "j"
+Sleep 100ms
+Type "j"
+Sleep 100ms
+Type "j"
+Sleep 100ms
+Type "j"
+Sleep 100ms
+Type "j"
 Sleep 1.5s
 
-# Navigate into app directory
-Type "j"
-Sleep 200ms
-Type "j"
-Sleep 200ms
+# Preview pane shows rendered README.md markdown
+
+# Scroll through the README
+Type "]"
+Sleep 400ms
+Type "]"
+Sleep 400ms
+Type "]"
+Sleep 400ms
+Type "]"
+Sleep 400ms
+Type "]"
+Sleep 1s
+
+# Navigate back up to internal/ (8 k presses up from README.md)
+Type "k"
+Sleep 100ms
+Type "k"
+Sleep 100ms
+Type "k"
+Sleep 100ms
+Type "k"
+Sleep 100ms
+Type "k"
+Sleep 100ms
+Type "k"
+Sleep 100ms
+Type "k"
+Sleep 100ms
+Type "k"
+Sleep 500ms
+
+# Enter internal/
 Type "l"
 Sleep 1s
 
-# Browse files — preview highlights code
+# Navigate down to theme/ (13 j presses: app config connect gitstatus help jump nav ops palette pane preview provider theme)
 Type "j"
-Sleep 500ms
+Sleep 100ms
 Type "j"
-Sleep 500ms
+Sleep 100ms
 Type "j"
-Sleep 500ms
+Sleep 100ms
+Type "j"
+Sleep 100ms
+Type "j"
+Sleep 100ms
+Type "j"
+Sleep 100ms
+Type "j"
+Sleep 100ms
+Type "j"
+Sleep 100ms
+Type "j"
+Sleep 100ms
+Type "j"
+Sleep 100ms
+Type "j"
+Sleep 100ms
+Type "j"
+Sleep 100ms
+Type "j"
+Sleep 800ms
 
-# Scroll preview
-Type "]"
-Sleep 300ms
-Type "]"
-Sleep 300ms
-Type "]"
-Sleep 300ms
+# Enter theme/
+Type "l"
+Sleep 1s
 
-# Go back up
+# Preview shows theme.go with syntax highlighting — scroll through it
+Type "]"
+Sleep 400ms
+Type "]"
+Sleep 400ms
+Type "]"
+Sleep 400ms
+Type "]"
+Sleep 400ms
+Type "]"
+Sleep 400ms
+Type "]"
+Sleep 1s
+
+# Navigate to omarchy.go (j once)
+Type "j"
+Sleep 1s
+
+# Back out to root
+Type "h"
+Sleep 500ms
 Type "h"
 Sleep 800ms
-Type "h"
+
+# Show sort cycling on the root directory
+Type "s"
+Sleep 1s
+Type "s"
+Sleep 1s
+Type "s"
+Sleep 1s
+Type "s"
 Sleep 800ms
 
 # Open command palette
 Type ":"
-Sleep 1.5s
+Sleep 2s
 
-# Search for sort
-Type "sort"
-Sleep 1s
-Enter
-Sleep 1s
-
-# Cycle sort again to show size
-Type "s"
-Sleep 800ms
-Type "s"
-Sleep 800ms
-Type "s"
-Sleep 800ms
-
-# Open jump list
-Type "g"
-Sleep 1.5s
+# Close palette
 Escape
-Sleep 500ms
+Sleep 800ms
 
-# Show hidden files
-Type "."
-Sleep 1s
-Type "."
-Sleep 500ms
-
-# Switch to other pane
+# Switch to right pane and navigate to docs/
 Tab
 Sleep 800ms
+Type "j"
+Sleep 100ms
+Type "j"
+Sleep 500ms
 
-# Navigate other pane
-Type "j"
-Sleep 200ms
-Type "j"
-Sleep 200ms
-Type "j"
-Sleep 200ms
-Type "j"
-Sleep 200ms
+# Enter docs/
 Type "l"
 Sleep 1s
 
-# Switch back
+# Preview shows enhancements.md — scroll through it
+Type "]"
+Sleep 400ms
+Type "]"
+Sleep 400ms
+Type "]"
+Sleep 400ms
+
+# Navigate to reference.md
+Type "j"
+Sleep 1.5s
+
+# Switch back to left pane
 Tab
 Sleep 500ms
 

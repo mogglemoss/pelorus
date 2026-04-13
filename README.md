@@ -11,6 +11,12 @@ Dual-pane TUI file manager. Local filesystem. SFTP remotes. Tailscale nodes. Arc
 
 ---
 
+## Demo
+
+![pelorus demo](assets/pelorus.gif)
+
+---
+
 ## Features
 
 **Dual pane**
