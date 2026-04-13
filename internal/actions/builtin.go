@@ -85,6 +85,9 @@ type CopyFilenameMsg struct{}
 // BulkRenameMsg tells the app to bulk-rename all selected items.
 type BulkRenameMsg struct{}
 
+// RevealInFinderMsg tells the app to reveal the selected item in macOS Finder.
+type RevealInFinderMsg struct{}
+
 // RegisterBuiltins registers the standard set of built-in actions.
 func RegisterBuiltins(r *Registry) {
 	builtins := []Action{
@@ -460,6 +463,17 @@ func RegisterBuiltins(r *Registry) {
 			Keybinding:  "R",
 			Handler: func(_ AppState) tea.Cmd {
 				return func() tea.Msg { return BulkRenameMsg{} }
+			},
+		},
+		{
+			ID:          "file.reveal-in-finder",
+			Name:        "Reveal in Finder",
+			Description: "Reveal selected item in macOS Finder (local panes only)",
+			Category:    "File",
+			Context:     CtxFileSelected,
+			Keybinding:  "ctrl+r",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return RevealInFinderMsg{} }
 			},
 		},
 	}

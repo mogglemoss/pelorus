@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
@@ -49,6 +51,16 @@ func run(cmd *cobra.Command, args []string) error {
 	startDir := "."
 	if len(args) > 0 {
 		startDir = args[0]
+		// Handle pelorus:// URL scheme: strip the scheme and URL-decode the path.
+		// e.g. pelorus:///Users/scott/Documents → /Users/scott/Documents
+		if strings.HasPrefix(startDir, "pelorus://") {
+			raw := strings.TrimPrefix(startDir, "pelorus://")
+			if decoded, err := url.PathUnescape(raw); err == nil {
+				startDir = decoded
+			} else {
+				startDir = raw
+			}
+		}
 	}
 
 	// Load config first so we can read start_dir from it.

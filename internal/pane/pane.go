@@ -56,6 +56,9 @@ type Model struct {
 	// GitStatus maps absolute paths to single-char git status glyphs.
 	GitStatus map[string]string
 
+	// InGitRepo is true when the pane's directory is inside a git repository.
+	InGitRepo bool
+
 	// Fuzzy filter state
 	FilterStr string
 
@@ -489,11 +492,22 @@ func (m *Model) View() string {
 		full = "…" + full[len(full)-innerW+1:]
 	}
 	pathDisplay = full
+	// Ambient color: header fg shifts subtly based on directory context.
+	//   archive  → amber  (#ffaa55)
+	//   git repo → soft green (#4ade80)
+	//   default  → bright cyan (#00ffd0)
 	var pathStyle lipgloss.Style
 	if m.IsActive {
-		pathStyle = m.Theme.PathHeader.
-			Copy().
-			Foreground(lipgloss.Color("#00ffd0"))
+		var headerFg lipgloss.Color
+		switch {
+		case m.HasArchive():
+			headerFg = "#ffaa55"
+		case m.InGitRepo:
+			headerFg = "#4ade80"
+		default:
+			headerFg = "#00ffd0"
+		}
+		pathStyle = m.Theme.PathHeader.Copy().Foreground(headerFg)
 	} else {
 		pathStyle = m.Theme.PathHeader.Copy().Faint(true)
 	}

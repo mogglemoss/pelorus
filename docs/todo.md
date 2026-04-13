@@ -22,19 +22,10 @@ Captured after the session that landed: multi-select, F-key aliases, trash, sort
 
 ## Low priority / polish
 
-**Open in Finder / Reveal**
-`ctrl+r` or palette action: reveal the item under cursor in macOS Finder. Local panes only — no-op gracefully on SFTP. `exec.Command("open", "-R", path)`.
-Files: `internal/actions/builtin.go`, `internal/app/app.go`
-
-**`pelorus://` URL scheme**
-Register a custom URL scheme so Raycast, Spotlight scripts, Automator, and shell aliases can deep-link into Pelorus at a specific path. One-time system registration via a plist or `lsregister`. Unlocks integrations without any changes to other tools.
-Files: `extras/` (installer script or plist), `cmd/root.go` (handle URL arg if needed)
-
-**`extras/` macOS Quick Action**
-A small `.workflow` file (plist + shell script) that adds "Open in Pelorus" to Finder's right-click Services menu. No Pelorus Go code changes. Ship as a downloadable file in `extras/open-in-pelorus.workflow`.
-
-**Ambient directory awareness**
-Subtle visual shift based on directory type: git repos get a slightly different accent hue in the border, recently-modified directories pulse briefly on entry, archives get a compressed visual texture. Complements the subaquatic aesthetic.
+~~**Open in Finder / Reveal**~~ ✓ done (`ctrl+r` / palette; `open -R path`; no-op on remote panes)
+~~**`pelorus://` URL scheme**~~ ✓ done (`extras/install-url-scheme.sh` registers AppleScript handler; `cmd/root.go` strips scheme prefix from CLI args)
+~~**`extras/` macOS Quick Action**~~ ✓ done (`extras/Open in Pelorus.workflow` — copy to `~/Library/Services/` to install)
+~~**Ambient directory awareness**~~ ✓ done (path header: amber in archives, soft green in git repos, default cyan elsewhere)
 
 ---
 

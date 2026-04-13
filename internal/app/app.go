@@ -228,6 +228,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.gitBranch = msg.Branch
 		for _, p := range m.panes {
 			p.GitStatus = msg.Status
+			p.InGitRepo = msg.InRepo
 		}
 		return m, nil
 
@@ -298,6 +299,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.statusMsg = "Copied: " + sel.Name
 			}
+		}
+		return m, nil
+
+	case actions.RevealInFinderMsg:
+		ap := m.activeP()
+		if ap.Provider.Capabilities().IsRemote {
+			m.statusMsg = "Reveal in Finder not available for remote panes"
+			return m, nil
+		}
+		sel := ap.Selected()
+		if sel == nil {
+			return m, nil
+		}
+		if err := exec.Command("open", "-R", sel.Path).Start(); err != nil {
+			m.statusMsg = "Reveal failed: " + err.Error()
 		}
 		return m, nil
 

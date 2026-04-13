@@ -20,6 +20,7 @@ type GitStatusMsg struct {
 	Dir    string
 	Status StatusMap
 	Branch string // current branch name, or short SHA if detached
+	InRepo bool   // true when dir is inside a git repository
 }
 
 // cacheEntry holds a cached git status result.
@@ -142,7 +143,8 @@ func FetchStatus(dir string) (StatusMap, string) {
 // GitStatusCmd returns a tea.Cmd that fetches git status asynchronously.
 func GitStatusCmd(dir string) tea.Cmd {
 	return func() tea.Msg {
+		_, inRepo := FindRepoRoot(dir)
 		status, branch := FetchStatus(dir)
-		return GitStatusMsg{Dir: dir, Status: status, Branch: branch}
+		return GitStatusMsg{Dir: dir, Status: status, Branch: branch, InRepo: inRepo}
 	}
 }
