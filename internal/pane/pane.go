@@ -563,10 +563,26 @@ func (m *Model) View() string {
 	return boxStyle.Render(content)
 }
 
+// hasDirtyChildren reports whether any git-tracked path under dirPath is modified.
+// Used to show an aggregate dirty glyph on directory entries.
+func (m *Model) hasDirtyChildren(dirPath string) bool {
+	prefix := dirPath + "/"
+	for path := range m.GitStatus {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *Model) renderEntry(fi fileinfo.FileInfo, selected bool, width int) string {
 	icon := fileinfo.Icon(fi)
 	isMarked := m.MultiSel[fi.Path]
 	gitGlyph, hasGit := m.GitStatus[fi.Path]
+
+	// Directories with no direct git status may still have dirty children.
+	dirDirty := fi.IsDir && !hasGit && m.hasDirtyChildren(fi.Path)
+	showGlyph := hasGit || dirDirty
 
 	// Prefix marked items with a visible indicator.
 	marker := "  "
@@ -581,7 +597,7 @@ func (m *Model) renderEntry(fi fileinfo.FileInfo, selected bool, width int) stri
 
 	// Reserve space: marker(2) + icon(1) + space(1) + name + optional git glyph(2)
 	gitReserve := 0
-	if hasGit {
+	if showGlyph {
 		gitReserve = 2
 	}
 	maxName := width - 5 - gitReserve
@@ -645,6 +661,10 @@ func (m *Model) renderEntry(fi fileinfo.FileInfo, selected bool, width int) stri
 			glyphColor = "#4a6070"
 		}
 		glyphRender := lipgloss.NewStyle().Foreground(glyphColor).Render(" " + gitGlyph)
+		rendered = rendered + glyphRender
+	} else if dirDirty {
+		// Aggregate dirty indicator: directory contains modified/untracked children.
+		glyphRender := lipgloss.NewStyle().Foreground(lipgloss.Color("#8a7040")).Render(" ~")
 		rendered = rendered + glyphRender
 	}
 

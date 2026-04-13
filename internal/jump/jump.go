@@ -2,6 +2,7 @@ package jump
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -365,7 +366,11 @@ func (m *Model) View() string {
 	// Footer hint line.
 	sb.WriteString("\n")
 	footerStyle := m.Theme.PaletteItem.Copy().Faint(true)
-	sb.WriteString(footerStyle.Width(boxW - 4).Render("  enter jump · B bookmark · esc close"))
+	countStr := ""
+	if len(m.filtered) > 0 {
+		countStr = fmt.Sprintf(" · %d/%d", m.cursor+1, len(m.filtered))
+	}
+	sb.WriteString(footerStyle.Width(boxW - 4).Render("  enter jump · B bookmark · esc close" + countStr))
 
 	content := strings.TrimRight(sb.String(), "\n")
 	return m.Theme.PaletteBox.Width(boxW).Render(content)

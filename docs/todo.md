@@ -14,17 +14,9 @@ Captured after the session that landed: multi-select, F-key aliases, trash, sort
 
 ## Medium priority
 
-**Dirty directory glyphs**
-Git status glyphs appear on files (`M`, `A`, `?`). Directories that contain modified or untracked children should show a subtle aggregate glyph (e.g. `~` or `·`). Computed from the existing `StatusMap` — any entry whose path is prefixed by the directory path.
-Files: `internal/pane/pane.go` (`renderEntry`), `internal/gitstatus/gitstatus.go`
-
-**Job queue → Bubbles progress bars**
-The ops job queue renders hand-rolled progress bars. Replace with the Bubbles `progress` component for smooth animated fills and cleaner ETA display.
-Files: `internal/ops/ops.go`, `internal/app/app.go` (job view render)
-
-**Paginator for jump list / palette**
-When the jump list or command palette has more results than fit vertically, the list clips with no indication. Add a Bubbles `paginator` or scroll indicator.
-Files: `internal/palette/palette.go`, `internal/jump/jump.go`
+~~**Dirty directory glyphs**~~ ✓ done (`~` glyph on dirs with modified/untracked children)
+~~**Job queue → Bubbles progress bars**~~ ✓ done (was already using Bubbles `progress` with gradient fills)
+~~**Paginator for jump list / palette**~~ ✓ done (`N/M` counter in footer of both overlays)
 
 ---
 

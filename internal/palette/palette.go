@@ -1,6 +1,7 @@
 package palette
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -201,7 +202,11 @@ func (m *Model) View() string {
 	// Footer.
 	sb.WriteString("\n")
 	footerStyle := m.Theme.PaletteItem.Copy().Faint(true)
-	sb.WriteString(footerStyle.Width(innerW).Render("  ↑↓ navigate · enter select · esc close"))
+	countStr := ""
+	if len(m.Filtered) > 0 {
+		countStr = fmt.Sprintf(" · %d/%d", m.Cursor+1, len(m.Filtered))
+	}
+	sb.WriteString(footerStyle.Width(innerW).Render("  ↑↓ navigate · enter select · esc close" + countStr))
 
 	content := strings.TrimRight(sb.String(), "\n")
 	return m.Theme.PaletteBox.Width(boxW).Render(content)
