@@ -50,6 +50,10 @@ func Get(name string) Theme {
 		return NordTheme()
 	case "light":
 		return LightTheme()
+	case "dracula":
+		return DraculaTheme()
+	case "omarchy":
+		return OmarchyTheme()
 	default:
 		return PelorusTheme()
 	}
@@ -499,5 +503,223 @@ func LightTheme() Theme {
 		StatusBarMuted: lipgloss.NewStyle().
 			Background(lipgloss.Color("#e0e0e0")).
 			Foreground(lipgloss.Color("#777777")),
+	}
+}
+
+// ---------------------------------------------------------------------------
+// dracula — purple night
+// ---------------------------------------------------------------------------
+
+func DraculaTheme() Theme {
+	hdrBg := "#44475A"
+	paneBg := "#282A36"
+	statusBg := "#21222C"
+	paletteBg := "#21222C"
+	return Theme{
+		HeaderBg: hdrBg,
+
+		ActiveBorder: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#BD93F9")).
+			Background(lipgloss.Color(paneBg)),
+
+		InactiveBorder: lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("#44475A")).
+			Background(lipgloss.Color(paneBg)),
+
+		PreviewBorder: lipgloss.NewStyle().
+			Border(lipgloss.Border{
+				Top: "╌", Bottom: "╌",
+				Left: "┊", Right: "┊",
+				TopLeft: "╭", TopRight: "╮",
+				BottomLeft: "╰", BottomRight: "╯",
+			}).
+			BorderForeground(lipgloss.Color("#44475A")).
+			Background(lipgloss.Color(paneBg)),
+
+		Cursor: lipgloss.NewStyle().
+			Background(lipgloss.Color("#44475A")).
+			Foreground(lipgloss.Color("#BD93F9")).
+			Bold(true),
+
+		DirName: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#8BE9FD")).
+			Bold(true),
+
+		FileName: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#F8F8F2")),
+
+		SymlinkName: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF79C6")).
+			Italic(true),
+
+		StatusBar: lipgloss.NewStyle().
+			Background(lipgloss.Color(statusBg)).
+			Foreground(lipgloss.Color("#6272A4")).
+			Padding(0, 1),
+
+		PaletteBox: lipgloss.NewStyle().
+			Border(lipgloss.DoubleBorder()).
+			BorderForeground(lipgloss.Color("#BD93F9")).
+			Background(lipgloss.Color(paletteBg)).
+			Padding(1, 2),
+
+		PaletteInput: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#BD93F9")).
+			Background(lipgloss.Color(paletteBg)),
+
+		PaletteItem: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#F8F8F2")).
+			Background(lipgloss.Color(paletteBg)),
+
+		PaletteSelected: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#282A36")).
+			Background(lipgloss.Color("#BD93F9")).
+			Bold(true),
+
+		PathHeader: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#BD93F9")).
+			Bold(true),
+
+		MarkedEntry: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#F1FA8C")).
+			Bold(true),
+
+		Divider: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#44475A")),
+
+		Header: lipgloss.NewStyle().
+			Background(lipgloss.Color(hdrBg)),
+
+		HeaderTitle: lipgloss.NewStyle().
+			Background(lipgloss.Color(hdrBg)).
+			Foreground(lipgloss.Color("#BD93F9")).
+			Bold(true),
+
+		HeaderPath: lipgloss.NewStyle().
+			Background(lipgloss.Color(hdrBg)).
+			Foreground(lipgloss.Color("#F8F8F2")),
+
+		HeaderHint: lipgloss.NewStyle().
+			Background(lipgloss.Color(hdrBg)).
+			Foreground(lipgloss.Color("#282A36")),
+
+		StatusBarAccent: lipgloss.NewStyle().
+			Background(lipgloss.Color(statusBg)).
+			Foreground(lipgloss.Color("#BD93F9")),
+
+		StatusBarMuted: lipgloss.NewStyle().
+			Background(lipgloss.Color(statusBg)).
+			Foreground(lipgloss.Color("#6272A4")),
+	}
+}
+
+// ---------------------------------------------------------------------------
+// omarchy — catppuccin mocha (DHH's omarchy default palette)
+// ---------------------------------------------------------------------------
+
+func OmarchyTheme() Theme {
+	hdrBg := "#313244" // surface0
+	paneBg := "#1e1e2e" // base
+	statusBg := "#11111b" // crust
+	paletteBg := "#181825" // mantle
+	return Theme{
+		HeaderBg: hdrBg,
+
+		ActiveBorder: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#cba6f7")).
+			Background(lipgloss.Color(paneBg)),
+
+		InactiveBorder: lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("#45475a")).
+			Background(lipgloss.Color(paneBg)),
+
+		PreviewBorder: lipgloss.NewStyle().
+			Border(lipgloss.Border{
+				Top: "╌", Bottom: "╌",
+				Left: "┊", Right: "┊",
+				TopLeft: "╭", TopRight: "╮",
+				BottomLeft: "╰", BottomRight: "╯",
+			}).
+			BorderForeground(lipgloss.Color("#45475a")).
+			Background(lipgloss.Color(paneBg)),
+
+		Cursor: lipgloss.NewStyle().
+			Background(lipgloss.Color("#45475a")).
+			Foreground(lipgloss.Color("#cba6f7")).
+			Bold(true),
+
+		DirName: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#89b4fa")).
+			Bold(true),
+
+		FileName: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#cdd6f4")),
+
+		SymlinkName: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#f5c2e7")).
+			Italic(true),
+
+		StatusBar: lipgloss.NewStyle().
+			Background(lipgloss.Color(statusBg)).
+			Foreground(lipgloss.Color("#585b70")).
+			Padding(0, 1),
+
+		PaletteBox: lipgloss.NewStyle().
+			Border(lipgloss.DoubleBorder()).
+			BorderForeground(lipgloss.Color("#cba6f7")).
+			Background(lipgloss.Color(paletteBg)).
+			Padding(1, 2),
+
+		PaletteInput: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#cba6f7")).
+			Background(lipgloss.Color(paletteBg)),
+
+		PaletteItem: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#cdd6f4")).
+			Background(lipgloss.Color(paletteBg)),
+
+		PaletteSelected: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#1e1e2e")).
+			Background(lipgloss.Color("#cba6f7")).
+			Bold(true),
+
+		PathHeader: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#cba6f7")).
+			Bold(true),
+
+		MarkedEntry: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#f9e2af")).
+			Bold(true),
+
+		Divider: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#45475a")),
+
+		Header: lipgloss.NewStyle().
+			Background(lipgloss.Color(hdrBg)),
+
+		HeaderTitle: lipgloss.NewStyle().
+			Background(lipgloss.Color(hdrBg)).
+			Foreground(lipgloss.Color("#cba6f7")).
+			Bold(true),
+
+		HeaderPath: lipgloss.NewStyle().
+			Background(lipgloss.Color(hdrBg)).
+			Foreground(lipgloss.Color("#bac2de")),
+
+		HeaderHint: lipgloss.NewStyle().
+			Background(lipgloss.Color(hdrBg)).
+			Foreground(lipgloss.Color("#1e1e2e")),
+
+		StatusBarAccent: lipgloss.NewStyle().
+			Background(lipgloss.Color(statusBg)).
+			Foreground(lipgloss.Color("#cba6f7")),
+
+		StatusBarMuted: lipgloss.NewStyle().
+			Background(lipgloss.Color(statusBg)).
+			Foreground(lipgloss.Color("#585b70")),
 	}
 }
