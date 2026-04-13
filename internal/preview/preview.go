@@ -33,7 +33,7 @@ const maxReadBytes = 64 * 1024 // 64 KB
 type ContentReadyMsg struct {
 	Content string
 	Err     error
-	IsImage bool // true when Content is chafa pixel output — skip text post-processing
+	IsImage bool // true when Content is chafa pixel output — skip stripANSIBg
 }
 
 // Model is the Bubbletea model for the preview pane.
@@ -114,12 +114,14 @@ func (m *Model) SetContent(msg ContentReadyMsg) {
 
 	content := msg.Content
 	if msg.Err == nil && content != "" && !msg.IsImage {
-		// Strip any explicit background codes from syntax-highlighted content
-		// so it inherits the pane background, then convert full SGR resets to
-		// foreground-only resets so the background is never cleared.
+		// For text content: strip explicit background codes so it inherits
+		// the pane background, and convert full SGR resets to fg-only resets
+		// so the background is never cleared between tokens.
 		content = stripANSIBg(content)
 		content = softenResets(content)
 	}
+	// Image content (chafa) uses its own fg/bg colors and reverse video
+	// for pixel encoding — leave its ANSI sequences untouched.
 
 	m.rawContent = content
 	m.vp.SetContent(content)
@@ -617,12 +619,23 @@ func renderChafa(path string, width, height int) (string, error) {
 		return "", fmt.Errorf("chafa not found")
 	}
 	size := fmt.Sprintf("%dx%d", width, height)
-	cmd := exec.Command("chafa", "--format", "symbols", "--size", size, "--colors", "full", path)
+	cmd := exec.Command("chafa", "--size", size, "--colors", "full", path)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimRight(string(out), "\n"), nil
+	s := string(out)
+	// Chafa may prepend IND (\x1bD) escape sequences to scroll the terminal
+	// down and create space for the image. Inside a bubbletea viewport these
+	// cause the layout to scroll/mangle. Strip them.
+	s = strings.ReplaceAll(s, "\x1bD", "")
+	s = strings.TrimRight(s, "\n")
+	// Ensure output ends with a full SGR reset so reverse video (\x1b[7m)
+	// and other attributes don't leak into the viewport padding or border.
+	if s != "" && !strings.HasSuffix(s, "\x1b[0m") {
+		s += "\x1b[0m"
+	}
+	return s, nil
 }
 
 func isImageExt(ext string) bool {

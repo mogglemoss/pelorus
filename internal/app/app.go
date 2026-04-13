@@ -299,6 +299,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// --- Preview messages ---
 	case preview.ContentReadyMsg:
 		m.previewModel.SetContent(msg)
+		// Image content (chafa) uses dense ANSI with reverse video that can
+		// confuse bubbletea's diff-based renderer. Force a full repaint.
+		if msg.IsImage {
+			return m, tea.ClearScreen
+		}
 		return m, nil
 
 	case pane.OpenFileMsg:
@@ -1168,6 +1173,8 @@ func (m *Model) updatePreview() tea.Cmd {
 	}
 	sel := m.activeP().Selected()
 	if sel == nil {
+		// Clear stale content (e.g. navigating to an empty directory).
+		m.previewModel.SetContent(preview.ContentReadyMsg{})
 		return nil
 	}
 	return m.previewModel.SetFile(sel)
