@@ -26,7 +26,6 @@ const (
 	ModeRename
 	ModeNewFile
 	ModeNewDir
-	ModeConfirmDelete
 	ModeFilter
 	ModeGotoPath
 )
@@ -64,9 +63,8 @@ type Model struct {
 	FilterStr string
 
 	// Inline input (rename / new file / new dir)
-	Mode      Mode
-	Input     textinput.Model
-	ConfirmTarget fileinfo.FileInfo // file being deleted
+	Mode  Mode
+	Input textinput.Model
 
 	// Dimensions
 	Width  int
@@ -180,17 +178,6 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		}
 		return m, cmd
 
-	case ModeConfirmDelete:
-		if kMsg, ok := msg.(tea.KeyMsg); ok {
-			switch strings.ToLower(kMsg.String()) {
-			case "y", "enter":
-				cmd = m.doDelete()
-			default:
-				m.Mode = ModeNormal
-			}
-		}
-		return m, cmd
-
 	case ModeFilter:
 		if kMsg, ok := msg.(tea.KeyMsg); ok {
 			switch kMsg.Type {
@@ -277,24 +264,6 @@ func expandPath(p string) string {
 		}
 	}
 	return os.ExpandEnv(p)
-}
-
-// DeleteConfirmedMsg is emitted when the user confirms deletion in ModeConfirmDelete.
-// The app handles the actual deletion so it can enqueue it as a background job.
-type DeleteConfirmedMsg struct {
-	Path     string
-	Provider provider.Provider
-}
-
-func (m *Model) doDelete() tea.Cmd {
-	m.Mode = ModeNormal
-	target := m.ConfirmTarget
-	prov := m.Provider
-	// Reload optimistically (the file will disappear when the job finishes).
-	m.reload()
-	return func() tea.Msg {
-		return DeleteConfirmedMsg{Path: target.Path, Provider: prov}
-	}
 }
 
 // ErrMsg carries an error to be shown in the status bar.
@@ -408,28 +377,6 @@ func (m *Model) GoParent() {
 func (m *Model) ToggleHidden() {
 	m.ShowHidden = !m.ShowHidden
 	m.reload()
-}
-
-// StartDelete begins a delete operation. Returns a Cmd when confirmRequired is false
-// (immediate delete path) so the app can enqueue it; returns nil when going to
-// ModeConfirmDelete (the Cmd will come from doDelete instead).
-func (m *Model) StartDelete(confirmRequired bool) tea.Cmd {
-	sel := m.Selected()
-	if sel == nil {
-		return nil
-	}
-	m.ConfirmTarget = *sel
-	if confirmRequired {
-		m.Mode = ModeConfirmDelete
-		return nil
-	}
-	// Immediate delete — emit the msg so app can enqueue as a background job.
-	path := sel.Path
-	prov := m.Provider
-	m.reload()
-	return func() tea.Msg {
-		return DeleteConfirmedMsg{Path: path, Provider: prov}
-	}
 }
 
 func (m *Model) StartRename() {
@@ -616,14 +563,6 @@ func (m *Model) View() string {
 		inputPrompt = "New dir: "
 	case ModeGotoPath:
 		inputPrompt = "Go to: "
-	case ModeConfirmDelete:
-		sel := m.ConfirmTarget
-		inputPrompt = fmt.Sprintf("Delete %q? (y/n) ", sel.Name)
-		inputLine := m.Theme.StatusBar.Width(innerW).Render(inputPrompt)
-		sb.WriteString(inputLine)
-		sb.WriteString("\n")
-		innerH--
-		inputPrompt = ""
 	}
 	if inputPrompt != "" {
 		inputLine := inputPrompt + m.Input.View()

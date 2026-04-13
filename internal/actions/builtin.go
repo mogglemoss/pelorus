@@ -82,6 +82,9 @@ type CopyPathMsg struct{}
 // CopyFilenameMsg tells the app to copy the selected item's filename to clipboard.
 type CopyFilenameMsg struct{}
 
+// BulkRenameMsg tells the app to bulk-rename all selected items.
+type BulkRenameMsg struct{}
+
 // RegisterBuiltins registers the standard set of built-in actions.
 func RegisterBuiltins(r *Registry) {
 	builtins := []Action{
@@ -446,6 +449,17 @@ func RegisterBuiltins(r *Registry) {
 			Keybinding:  "Y",
 			Handler: func(_ AppState) tea.Cmd {
 				return func() tea.Msg { return CopyFilenameMsg{} }
+			},
+		},
+		{
+			ID:          "file.bulk-rename",
+			Name:        "Bulk Rename",
+			Description: "Rename multiple selected items",
+			Category:    "File",
+			Context:     CtxAlways,
+			Keybinding:  "R",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return BulkRenameMsg{} }
 			},
 		},
 	}

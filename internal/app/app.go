@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/fsnotify/fsnotify"
 
@@ -65,8 +66,13 @@ type Model struct {
 	queueOpen     bool
 	tickerRunning bool
 
-	// multiDeletePending holds items awaiting confirmation for batch delete.
-	multiDeletePending []fileinfo.FileInfo
+	// Huh overlay
+	huhOverlay     *huh.Form
+	huhMode        string // "delete" | "bulk-rename"
+	huhConfirm     bool
+	huhDeleteItems []fileinfo.FileInfo
+	huhRenameItems []fileinfo.FileInfo
+	huhRenameNames []string
 
 	store *jump.Store
 
@@ -157,6 +163,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.helpModel.Width = msg.Width
 		m.helpModel.Height = msg.Height
 		return m, tea.Batch(m.updatePreview(), m.updateGitStatus())
+	}
+
+	// Route all messages to Huh overlay when active.
+	if m.huhOverlay != nil {
+		newModel, cmd := m.huhOverlay.Update(msg)
+		if f, ok := newModel.(*huh.Form); ok {
+			m.huhOverlay = f
+		}
+		if m.huhOverlay.State == huh.StateCompleted {
+			c := m.onHuhComplete()
+			m.huhOverlay = nil
+			return m, c
+		}
+		if m.huhOverlay.State == huh.StateAborted {
+			m.huhOverlay = nil
+			m.statusMsg = "Cancelled"
+			return m, nil
+		}
+		return m, cmd
+	}
+
+	switch msg := msg.(type) {
 
 	// --- Error display ---
 	case pane.ErrMsg:
@@ -275,14 +303,82 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case actions.DeleteSelectedMsg:
 		ap := m.activeP()
 		entries := ap.SelectedEntries()
-		if len(entries) > 1 {
-			// Batch delete: show confirmation at app level.
-			m.multiDeletePending = entries
-			m.statusMsg = fmt.Sprintf("Delete %d items? (y/n)", len(entries))
+		if len(entries) == 0 {
 			return m, nil
 		}
-		cmd := ap.StartDelete(m.cfg.General.ConfirmDelete)
-		return m, cmd
+		// Single file with confirm disabled: delete immediately.
+		if len(entries) == 1 && !m.cfg.General.ConfirmDelete {
+			return m, m.executeDelete(entries)
+		}
+		// Otherwise: show Huh confirmation overlay.
+		m.huhDeleteItems = entries
+		m.huhMode = "delete"
+		m.huhConfirm = false
+		title := fmt.Sprintf("Delete %q?", entries[0].Name)
+		desc := "This cannot be undone."
+		if len(entries) > 1 {
+			title = fmt.Sprintf("Delete %d items?", len(entries))
+			desc = fmt.Sprintf("%s and %d more…", entries[0].Name, len(entries)-1)
+		}
+		f := huh.NewForm(
+			huh.NewGroup(
+				huh.NewConfirm().
+					Title(title).
+					Description(desc).
+					Affirmative("Delete").
+					Negative("Cancel").
+					Value(&m.huhConfirm),
+			),
+		).WithTheme(pelorusHuhTheme()).WithWidth(52)
+		m.huhOverlay = f
+		return m, f.Init()
+
+	case actions.BulkRenameMsg:
+		ap := m.activeP()
+		items := ap.SelectedEntries()
+		if len(items) < 2 {
+			m.statusMsg = "Select 2 or more items to bulk rename (space to select)"
+			return m, nil
+		}
+		const maxBulk = 10
+		if len(items) > maxBulk {
+			items = items[:maxBulk]
+			m.statusMsg = fmt.Sprintf("Bulk rename limited to %d items", maxBulk)
+		}
+		m.huhRenameItems = items
+		m.huhRenameNames = make([]string, len(items))
+		for i, item := range items {
+			m.huhRenameNames[i] = item.Name
+		}
+		m.huhMode = "bulk-rename"
+
+		var fields []huh.Field
+		for i := range items {
+			idx := i // capture loop variable
+			fields = append(fields, huh.NewInput().
+				Title(items[idx].Name).
+				Value(&m.huhRenameNames[idx]).
+				Validate(func(s string) error {
+					if strings.TrimSpace(s) == "" {
+						return fmt.Errorf("name cannot be empty")
+					}
+					if strings.Contains(s, "/") {
+						return fmt.Errorf("name cannot contain /")
+					}
+					for j, name := range m.huhRenameNames {
+						if j != idx && name == s {
+							return fmt.Errorf("duplicate name")
+						}
+					}
+					return nil
+				}),
+			)
+		}
+		f := huh.NewForm(huh.NewGroup(fields...)).
+			WithTheme(pelorusHuhTheme()).
+			WithWidth(64)
+		m.huhOverlay = f
+		return m, f.Init()
 
 	case actions.RenameSelectedMsg:
 		m.activeP().StartRename()
@@ -460,10 +556,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case pane.DeleteConfirmedMsg:
-		cmd := m.enqueueDelete(msg.Path, msg.Provider)
-		return m, cmd
-
 	// --- Spinner tick (preview pane loading) ---
 	case spinner.TickMsg:
 		if m.previewModel.IsLoading() {
@@ -539,30 +631,6 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	key := msg.String()
-
-	// Multi-delete confirmation prompt.
-	if len(m.multiDeletePending) > 0 {
-		switch key {
-		case "y", "Y", "enter":
-			entries := m.multiDeletePending
-			m.multiDeletePending = nil
-			m.activeP().ClearSelection()
-			var cmds []tea.Cmd
-			for _, fi := range entries {
-				job := m.queue.Add(ops.KindDelete, fi.Path, "")
-				job.Status = ops.StatusRunning
-				job.StartTime = time.Now()
-				cmds = append(cmds, ops.StartJob(job, m.activeP().Provider, m.activeP().Provider))
-			}
-			m.statusMsg = fmt.Sprintf("Deleting %d items…", len(entries))
-			cmds = append(cmds, m.startProgressTicker())
-			return m, tea.Batch(cmds...)
-		default:
-			m.multiDeletePending = nil
-			m.statusMsg = "Cancelled"
-			return m, nil
-		}
-	}
 
 	// Preview scroll keys — handled before action dispatch.
 	if m.showPreview {
@@ -1067,6 +1135,27 @@ func (m *Model) View() string {
 		screen = overlayCenter(screen, connectView, m.width, m.height)
 	}
 
+	// Overlay Huh form (delete confirm, bulk rename) if active.
+	if m.huhOverlay != nil {
+		label := "Confirm"
+		if m.huhMode == "bulk-rename" {
+			label = fmt.Sprintf("Bulk Rename — %d items", len(m.huhRenameItems))
+		} else if m.huhMode == "delete" {
+			label = "Delete"
+		}
+		header := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#00ffd0")).
+			Bold(true).
+			Render("  " + label)
+		body := lipgloss.JoinVertical(lipgloss.Left, header, "", m.huhOverlay.View())
+		box := lipgloss.NewStyle().
+			Border(lipgloss.DoubleBorder()).
+			BorderForeground(lipgloss.Color("#0e7c7b")).
+			Padding(1, 2).
+			Render(body)
+		screen = overlayCenter(screen, box, m.width, m.height)
+	}
+
 	return screen
 }
 
@@ -1216,6 +1305,79 @@ func (m *Model) renderStatusBar() string {
 	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftSeg, centerSeg, rightSeg, farRightSeg)
+}
+
+// onHuhComplete is called when a Huh overlay form reaches StateCompleted.
+func (m *Model) onHuhComplete() tea.Cmd {
+	switch m.huhMode {
+	case "delete":
+		if m.huhConfirm {
+			return m.executeDelete(m.huhDeleteItems)
+		}
+		m.statusMsg = "Cancelled"
+		return nil
+	case "bulk-rename":
+		return m.executeBulkRename()
+	}
+	return nil
+}
+
+// executeDelete enqueues deletion of the given items.
+func (m *Model) executeDelete(items []fileinfo.FileInfo) tea.Cmd {
+	ap := m.activeP()
+	ap.ClearSelection()
+	var cmds []tea.Cmd
+	for _, fi := range items {
+		job := m.queue.Add(ops.KindDelete, fi.Path, "")
+		job.Status = ops.StatusRunning
+		job.StartTime = time.Now()
+		cmds = append(cmds, ops.StartJob(job, ap.Provider, ap.Provider))
+	}
+	m.statusMsg = fmt.Sprintf("Deleting %d item(s)…", len(items))
+	cmds = append(cmds, m.startProgressTicker())
+	return tea.Batch(cmds...)
+}
+
+// executeBulkRename performs all pending renames from the Huh bulk-rename form.
+func (m *Model) executeBulkRename() tea.Cmd {
+	ap := m.activeP()
+	renamed := 0
+	var errMsgs []string
+	for i, item := range m.huhRenameItems {
+		newName := m.huhRenameNames[i]
+		if newName == item.Name {
+			continue
+		}
+		newPath := filepath.Join(ap.Path, newName)
+		if err := ap.Provider.Rename(item.Path, newPath); err != nil {
+			errMsgs = append(errMsgs, err.Error())
+		} else {
+			renamed++
+		}
+	}
+	ap.ClearSelection()
+	ap.Reload()
+	if len(errMsgs) > 0 {
+		m.statusMsg = fmt.Sprintf("Renamed %d; %d error(s)", renamed, len(errMsgs))
+	} else if renamed > 0 {
+		m.statusMsg = fmt.Sprintf("Renamed %d item(s)", renamed)
+	}
+	return nil
+}
+
+// pelorusHuhTheme returns a Huh theme matching the pelorus subaquatic aesthetic.
+func pelorusHuhTheme() *huh.Theme {
+	t := huh.ThemeBase()
+	t.Focused.Title = lipgloss.NewStyle().Foreground(lipgloss.Color("#00ffd0")).Bold(true)
+	t.Focused.Description = lipgloss.NewStyle().Foreground(lipgloss.Color("#4a8fa8"))
+	t.Focused.TextInput.Cursor = lipgloss.NewStyle().Foreground(lipgloss.Color("#00ffd0"))
+	t.Focused.TextInput.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("#caf0e4"))
+	t.Focused.SelectedOption = lipgloss.NewStyle().Background(lipgloss.Color("#0e4060")).Foreground(lipgloss.Color("#00ffd0"))
+	t.Focused.UnselectedOption = lipgloss.NewStyle().Foreground(lipgloss.Color("#4a8fa8"))
+	t.Focused.ErrorMessage = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5555"))
+	t.Focused.ErrorIndicator = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5555"))
+	t.Blurred.Title = lipgloss.NewStyle().Foreground(lipgloss.Color("#4a8fa8"))
+	return t
 }
 
 // overlayCenter centers an overlay on top of the base view using lipgloss.Place.
