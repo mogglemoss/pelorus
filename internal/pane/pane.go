@@ -99,6 +99,8 @@ func (m *Model) reload() {
 	}
 	m.FilterStr = ""
 	m.Filtered = m.Entries
+	m.Mode = ModeNormal
+	m.Input.Blur()
 	m.clampCursor()
 }
 
@@ -185,6 +187,19 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 				m.FilterStr = ""
 				m.applyFilter()
 				m.Mode = ModeNormal
+			case tea.KeyEnter:
+				// Confirm: navigate into / open the currently highlighted entry,
+				// then exit filter mode (matches ranger/yazi/lf behaviour).
+				m.Mode = ModeNormal
+				cmd := m.EnterSelected()
+				// EnterSelected calls reload() for directories/archives, which
+				// already clears FilterStr. For file opens (non-nil cmd), clear
+				// the filter manually so the pane returns to normal state.
+				if cmd != nil {
+					m.FilterStr = ""
+					m.applyFilter()
+				}
+				return m, cmd
 			case tea.KeyBackspace:
 				if len(m.FilterStr) > 0 {
 					m.FilterStr = m.FilterStr[:len(m.FilterStr)-1]
@@ -290,6 +305,12 @@ func (m *Model) EnterSelected() tea.Cmd {
 		return nil
 	}
 
+	// Broken symlinks are not navigable and should not be opened in an editor
+	// (the target path does not exist).
+	if sel.IsSymlink && sel.SymlinkBroken {
+		return nil
+	}
+
 	if sel.IsDir {
 		m.Path = sel.Path
 		m.reload()
@@ -387,6 +408,13 @@ func (m *Model) StartFilter() {
 
 func (m *Model) StartGotoPath() {
 	m.Mode = ModeGotoPath
+	// Set Width before Focus/CursorEnd so the textinput's scroll viewport is
+	// sized correctly from the start. Without this, View() renders the full
+	// value with ANSI cursor-positioning codes that overflow the pane height.
+	const gotoPromptLen = 7 // len("Go to: ")
+	if m.Width > 2+gotoPromptLen {
+		m.Input.Width = m.Width - 2 - gotoPromptLen
+	}
 	m.Input.SetValue(m.Path + "/")
 	m.Input.Placeholder = "path"
 	m.Input.Focus()
@@ -548,12 +576,16 @@ func (m *Model) View() string {
 	sb.WriteString(header)
 	sb.WriteString("\n")
 
+	// extrasH tracks extra rows consumed by optional lines (filter, input).
+	// The box height always stays at innerH; only listH shrinks.
+	extrasH := 0
+
 	// Filter indicator.
 	if m.FilterStr != "" {
 		filterLine := m.Theme.PaletteInput.Width(innerW).Render("/" + m.FilterStr)
 		sb.WriteString(filterLine)
 		sb.WriteString("\n")
-		innerH--
+		extrasH++
 	}
 
 	// Inline input line.
@@ -563,14 +595,17 @@ func (m *Model) View() string {
 		inputPrompt = "Go to: "
 	}
 	if inputPrompt != "" {
+		// Use MaxWidth only (no Width) so the combined prompt+input is hard-clipped
+		// rather than wrapped. Lipgloss Width() wraps content wider than n, which
+		// breaks the pane height when the path is long; MaxWidth truncates instead.
 		inputLine := inputPrompt + m.Input.View()
-		sb.WriteString(lipgloss.NewStyle().Width(innerW).Render(inputLine))
+		sb.WriteString(lipgloss.NewStyle().MaxWidth(innerW).Render(inputLine))
 		sb.WriteString("\n")
-		innerH--
+		extrasH++
 	}
 
-	// Compute visible window.
-	listH := innerH - 1 // -1 for header
+	// Compute visible window: innerH minus header (1) minus any optional lines.
+	listH := innerH - 1 - extrasH
 	if listH < 1 {
 		listH = 1
 	}
