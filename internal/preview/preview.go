@@ -59,10 +59,10 @@ type Model struct {
 func New(t *theme.Theme) *Model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#00ffd0"))
+	s.Style = lipgloss.NewStyle().Foreground(t.StatusBarAccent.GetForeground())
 
 	vp := viewport.New(0, 0)
-	vp.Style = lipgloss.NewStyle().Background(lipgloss.Color("#0d1520"))
+	vp.Style = lipgloss.NewStyle().Background(t.PreviewBorder.GetBackground())
 
 	si := textinput.New()
 	si.Placeholder = "search…"
@@ -277,16 +277,11 @@ func (m *Model) View() string {
 	if m.file != nil {
 		headerText = " " + m.file.Name
 	}
-	headerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#00a896")).
-		Bold(true).
-		Width(innerW)
-	header := headerStyle.Render(headerText)
+	header := m.Theme.StatusBarAccent.Copy().Bold(true).Width(innerW).Render(headerText)
 
 	// Separator.
 	sep := strings.Repeat("─", innerW)
-	sepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#1a3040"))
-	separator := sepStyle.Render(sep)
+	separator := m.Theme.Divider.Render(sep)
 
 	// Viewport area (innerH - 2 for header + separator).
 	vpH := innerH - 2
@@ -326,10 +321,7 @@ func (m *Model) View() string {
 		} else if m.searchQuery != "" {
 			matchInfo = " [no matches]"
 		}
-		searchBar := lipgloss.NewStyle().
-			Background(lipgloss.Color("#1a3040")).
-			Foreground(lipgloss.Color("#caf0e4")).
-			Width(innerW).
+		searchBar := m.Theme.StatusBar.Copy().Width(innerW).
 			Render("/ " + m.searchInput.View() + matchInfo)
 		inner = lipgloss.JoinVertical(lipgloss.Left, header, separator, body, searchBar)
 	} else {

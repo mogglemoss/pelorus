@@ -346,7 +346,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Negative("Cancel").
 					Value(&m.huhConfirm),
 			),
-		).WithTheme(pelorusHuhTheme()).WithWidth(52)
+		).WithTheme(m.huhTheme()).WithWidth(52)
 		m.huhOverlay = f
 		return m, f.Init()
 
@@ -392,7 +392,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			)
 		}
 		f := huh.NewForm(huh.NewGroup(fields...)).
-			WithTheme(pelorusHuhTheme()).
+			WithTheme(m.huhTheme()).
 			WithWidth(64)
 		m.huhOverlay = f
 		return m, f.Init()
@@ -419,7 +419,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return nil
 				}),
-		)).WithTheme(pelorusHuhTheme()).WithWidth(56)
+		)).WithTheme(m.huhTheme()).WithWidth(56)
 		m.huhOverlay = f
 		return m, f.Init()
 
@@ -440,7 +440,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return nil
 				}),
-		)).WithTheme(pelorusHuhTheme()).WithWidth(56)
+		)).WithTheme(m.huhTheme()).WithWidth(56)
 		m.huhOverlay = f
 		return m, f.Init()
 
@@ -461,7 +461,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return nil
 				}),
-		)).WithTheme(pelorusHuhTheme()).WithWidth(56)
+		)).WithTheme(m.huhTheme()).WithWidth(56)
 		m.huhOverlay = f
 		return m, f.Init()
 
@@ -1265,16 +1265,9 @@ func (m *Model) View() string {
 		case "new-dir":
 			label = "New Directory"
 		}
-		header := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00ffd0")).
-			Bold(true).
-			Render("  " + label)
+		header := m.theme.PaletteSelected.Render("  " + label + "  ")
 		body := lipgloss.JoinVertical(lipgloss.Left, header, "", m.huhOverlay.View())
-		box := lipgloss.NewStyle().
-			Border(lipgloss.DoubleBorder()).
-			BorderForeground(lipgloss.Color("#0e7c7b")).
-			Padding(1, 2).
-			Render(body)
+		box := m.theme.PaletteBox.Render(body)
 		screen = overlayCenter(screen, box, m.width, m.height)
 	}
 
@@ -1293,18 +1286,18 @@ func (m *Model) renderHeader() string {
 	left := "  PELORUS"
 	right := "   " + paneLabel + "   ctrl+p palette   g jump   c connect  "
 
-	// Fill the gap between left and right with spaces.
-	gap := m.width - len(left) - len(right)
-	if gap < 0 {
-		gap = 0
-	}
+	// Render each section with the appropriate theme style.
+	leftPart := m.theme.HeaderTitle.Render(left)
+	rightPart := m.theme.HeaderHint.Render(right)
 
-	return lipgloss.NewStyle().
-		Background(lipgloss.Color("#0e7c7b")).
-		Foreground(lipgloss.Color("#caf0e4")).
-		Bold(true).
-		Width(m.width).
-		Render(left + strings.Repeat(" ", gap) + right)
+	// Fill the gap with the plain header background.
+	gapW := m.width - lipgloss.Width(leftPart) - lipgloss.Width(rightPart)
+	if gapW < 0 {
+		gapW = 0
+	}
+	gapPart := m.theme.Header.Width(gapW).Render("")
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPart, gapPart, rightPart)
 }
 
 // renderStatusBar builds the status bar string.
@@ -1535,18 +1528,24 @@ func (m *Model) executeNewDir(name string) tea.Cmd {
 	return m.updatePreview()
 }
 
-// pelorusHuhTheme returns a Huh theme matching the pelorus subaquatic aesthetic.
-func pelorusHuhTheme() *huh.Theme {
+// huhTheme returns a Huh form theme derived from the active pelorus theme.
+func (m *Model) huhTheme() *huh.Theme {
+	accent := m.theme.StatusBarAccent.GetForeground()
+	muted := m.theme.StatusBarMuted.GetForeground()
+	text := m.theme.FileName.GetForeground()
+	cursorBg := m.theme.Cursor.GetBackground()
+	cursorFg := m.theme.Cursor.GetForeground()
+
 	t := huh.ThemeBase()
-	t.Focused.Title = lipgloss.NewStyle().Foreground(lipgloss.Color("#00ffd0")).Bold(true)
-	t.Focused.Description = lipgloss.NewStyle().Foreground(lipgloss.Color("#4a8fa8"))
-	t.Focused.TextInput.Cursor = lipgloss.NewStyle().Foreground(lipgloss.Color("#00ffd0"))
-	t.Focused.TextInput.Text = lipgloss.NewStyle().Foreground(lipgloss.Color("#caf0e4"))
-	t.Focused.SelectedOption = lipgloss.NewStyle().Background(lipgloss.Color("#0e4060")).Foreground(lipgloss.Color("#00ffd0"))
-	t.Focused.UnselectedOption = lipgloss.NewStyle().Foreground(lipgloss.Color("#4a8fa8"))
+	t.Focused.Title = lipgloss.NewStyle().Foreground(accent).Bold(true)
+	t.Focused.Description = lipgloss.NewStyle().Foreground(muted)
+	t.Focused.TextInput.Cursor = lipgloss.NewStyle().Foreground(accent)
+	t.Focused.TextInput.Text = lipgloss.NewStyle().Foreground(text)
+	t.Focused.SelectedOption = lipgloss.NewStyle().Background(cursorBg).Foreground(cursorFg)
+	t.Focused.UnselectedOption = lipgloss.NewStyle().Foreground(muted)
 	t.Focused.ErrorMessage = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5555"))
 	t.Focused.ErrorIndicator = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5555"))
-	t.Blurred.Title = lipgloss.NewStyle().Foreground(lipgloss.Color("#4a8fa8"))
+	t.Blurred.Title = lipgloss.NewStyle().Foreground(muted)
 	return t
 }
 

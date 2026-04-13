@@ -493,21 +493,19 @@ func (m *Model) View() string {
 	}
 	pathDisplay = full
 	// Ambient color: header fg shifts subtly based on directory context.
-	//   archive  → amber  (#ffaa55)
-	//   git repo → soft green (#4ade80)
-	//   default  → bright cyan (#00ffd0)
+	//   archive  → amber  (semantic: compressed/archived content)
+	//   git repo → soft green (semantic: version-controlled)
+	//   default  → theme accent (PathHeader style)
 	var pathStyle lipgloss.Style
 	if m.IsActive {
-		var headerFg lipgloss.Color
+		pathStyle = m.Theme.PathHeader.Copy()
 		switch {
 		case m.HasArchive():
-			headerFg = "#ffaa55"
+			pathStyle = pathStyle.Foreground(lipgloss.Color("#ffaa55"))
 		case m.InGitRepo:
-			headerFg = "#4ade80"
-		default:
-			headerFg = "#00ffd0"
+			pathStyle = pathStyle.Foreground(lipgloss.Color("#4ade80"))
+		// default: PathHeader already carries the theme's accent color
 		}
-		pathStyle = m.Theme.PathHeader.Copy().Foreground(headerFg)
 	} else {
 		pathStyle = m.Theme.PathHeader.Copy().Faint(true)
 	}
@@ -644,19 +642,10 @@ func (m *Model) renderEntry(fi fileinfo.FileInfo, selected bool, width int) stri
 
 	var rendered string
 	if selected {
-		// Left-border accent: ▌ in bright cyan, rest in cursor background.
-		cursorBg := lipgloss.Color("#0e4060")
-		accentBar := lipgloss.NewStyle().
-			Background(cursorBg).
-			Foreground(lipgloss.Color("#00ffd0")).
-			Render("▌")
+		// Left-border accent: ▌ + body, both using the theme cursor style.
+		accentBar := m.Theme.Cursor.Width(1).Render("▌")
 		// Render the body one char narrower to preserve total visual width.
-		body := lipgloss.NewStyle().
-			Background(cursorBg).
-			Foreground(lipgloss.Color("#00ffd0")).
-			Bold(true).
-			Width(baseWidth - 1).
-			Render(baseLine)
+		body := m.Theme.Cursor.Width(baseWidth - 1).Render(baseLine)
 		rendered = accentBar + body
 	} else {
 		rendered = style.Render(baseLine)
