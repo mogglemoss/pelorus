@@ -516,7 +516,7 @@ func RegisterBuiltins(r *Registry) {
 			Description: "Preview file with macOS Quick Look",
 			Category:    "File",
 			Context:     CtxFileSelected,
-			Keybinding:  "ctrl+space",
+			Keybinding:  "Q",
 			Handler: func(_ AppState) tea.Cmd {
 				return func() tea.Msg { return QuickLookMsg{} }
 			},
