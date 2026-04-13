@@ -1,8 +1,9 @@
 # pelorus
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-pink.svg)
-![Go](https://img.shields.io/badge/go-1.22%2B-00ADD8.svg)
+![Go](https://img.shields.io/badge/go-1.26%2B-00ADD8.svg)
 [![Built with Charm](https://img.shields.io/badge/built_with-Charm-ff69b4.svg)](https://charm.sh)
+[![CI](https://github.com/mogglemoss/pelorus/actions/workflows/ci.yml/badge.svg)](https://github.com/mogglemoss/pelorus/actions/workflows/ci.yml)
 
 *A file manager with opinions.*
 
@@ -10,39 +11,49 @@ Dual-pane TUI file manager. Local filesystem. SFTP remotes. Tailscale nodes. Arc
 
 ---
 
----
-
 ## Features
 
 **Dual pane**
 - Left and right panes, always visible — not a mode, not a toggle, just there
-- `tab` to switch; `C` to copy across; `m` to move across
+- `tab` to switch; `C` / `F5` to copy across; `m` / `F6` to move across
 - Background job queue (`J`) with animated progress bars and speed/ETA — operations never block the UI
+- Multi-select with `space` — mark items across directories, then copy/move/delete the whole set at once
 
 **Navigation**
 - `j` / `k` / `h` / `l` — you know what these do
 - Type in any pane to fuzzy-filter its contents live
 - `g` opens the jump list — frecency-ranked, fuzzy-searchable, persistent
 - `B` to pin the current directory; `~` to go home; `ctrl+l` to type a path directly
+- `s` cycles sort order per pane: name → size → date → extension
 
 **Preview pane**
 - `p` toggles a third panel: syntax-highlighted code via Chroma, rendered Markdown via Glamour, file metadata for everything else
 - Scrollable with `]` / `[`
 - Loads asynchronously — the pane spinner tells you it's working
 
+**Git awareness**
+- File-level status glyphs inline in the file list: `M` modified · `A` staged · `D` deleted · `?` untracked
+- Branch indicator (`⎇ main`) in the status bar when inside a git repo
+- Non-blocking — fetched async with a 5 s cache; invisible outside git repos and on remote panes
+
+**Status bar**
+- Breadcrumb path with `›` separators, home-dir compressed to `~`
+- Centered git branch; remote pane badge (`● hostname`) on the right; permissions + size far right
+- Archive context shown inline: `~ › projects [archive.zip › src]`
+- Transient messages (copy confirmations, errors) override the bar full-width
+
 **Command palette**
 - `ctrl+p` or `:` — fuzzy-searches every action, built-in and custom
-- Context-aware: only shows what's valid for the current selection
-- Recently used actions float to the top
+- Actions grouped by category: Navigation · File · View · App · Custom
+- Shows keybindings inline
 
 **Archives as directories**
 - Press `l` on a `.zip`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, or `.tar` — it opens as a directory
 - Navigate in, copy files out; `h` at the root returns to the real filesystem
-- Status bar shows `[zip]` or `[tar.gz]` so you know where you are
 
 **Remote connections**
 - `c` opens the connect palette — parses `~/.ssh/config` automatically
-- Tailscale nodes appear in a second section, fetched live from the local socket, with `●` online / `○` offline indicators
+- Tailscale nodes appear in a second section, fetched live from the local socket
 - Connecting replaces the inactive pane with an SFTP session; all file operations work the same
 
 **Custom actions**
@@ -71,7 +82,7 @@ go install github.com/mogglemoss/pelorus@latest
 git clone https://github.com/mogglemoss/pelorus
 cd pelorus
 go build -o pelorus .
-./pelorus .
+./pelorus
 ```
 
 No CGO. No runtime dependencies. One binary.
@@ -91,34 +102,59 @@ pelorus [path] [flags]
 
 On first run, pelorus writes a fully-commented config file to the XDG config directory (`~/.config/pelorus/config.toml` on Linux, `~/Library/Application Support/pelorus/config.toml` on macOS). Every option is present and explained. Reading it is optional.
 
+Set `start_dir = "last"` in config to always reopen where you left off.
+
 ---
 
 ## Key Bindings
+
+### Navigation
 
 | Key | Action |
 |-----|--------|
 | `j` / `↓` | Move down |
 | `k` / `↑` | Move up |
 | `h` / `←` | Go to parent |
-| `l` / `→` / `enter` | Enter directory / open archive |
+| `l` / `→` / `enter` | Enter directory / open file / open archive |
 | `tab` | Switch active pane |
-| `ctrl+p` / `:` | Command palette |
 | `g` | Jump list |
-| `c` | Connect to SSH / Tailscale host |
-| `p` | Toggle preview pane |
-| `J` | Job queue |
-| `?` | Keybinding reference |
 | `~` | Go to home directory |
 | `ctrl+l` | Go to path (type any path) |
-| `.` | Toggle hidden files |
-| `B` | Bookmark current directory |
-| `C` | Copy selected to other pane |
-| `m` | Move selected to other pane |
-| `d` | Delete (with confirmation) |
+| `s` | Cycle sort: name → size → date → ext |
+
+### File Operations
+
+| Key | Action |
+|-----|--------|
+| `space` | Toggle selection (multi-select) |
+| `C` / `F5` | Copy selected (or all marked) to other pane |
+| `m` / `F6` | Move selected (or all marked) to other pane |
+| `F8` | Move to trash (OS trash on macOS/Linux) |
+| `d` / `⇧F8` | Permanent delete |
 | `r` | Rename |
-| `n` | New file |
-| `N` | New directory |
+| `n` / `⇧F7` | New file |
+| `N` / `F7` | New directory |
+| `F4` | Open in editor |
+| `y` | Copy full path to clipboard |
+| `Y` | Copy filename to clipboard |
+
+### View
+
+| Key | Action |
+|-----|--------|
+| `p` | Toggle preview pane |
 | `]` / `[` | Scroll preview down / up |
+| `.` | Toggle hidden files |
+| `J` | Job queue |
+
+### App
+
+| Key | Action |
+|-----|--------|
+| `ctrl+p` / `:` | Command palette |
+| `c` | Connect to SSH / Tailscale host |
+| `B` | Bookmark current directory |
+| `?` | Keybinding reference |
 | `q` | Quit |
 
 All keybindings are overridable in config.
@@ -135,14 +171,6 @@ description = "Open selected file in Zed editor"
 category = "Custom"
 command = "zed {path}"
 context = "always"
-
-[[actions.custom]]
-id = "custom.copy-path"
-name = "Copy Path"
-description = "Copy selected path to clipboard"
-category = "Custom"
-command = "echo {path} | pbcopy"
-context = "file"
 ```
 
 Template variables: `{path}` full path, `{name}` filename, `{dir}` containing directory. Commands run via `sh -c`. Custom actions appear in the palette and can be bound to any key.
@@ -163,6 +191,7 @@ Template variables: `{path}` full path, `{name}` filename, `{dir}` containing di
 | Config | TOML via [BurntSushi/toml](https://github.com/BurntSushi/toml) |
 | Archive formats | `.zip` · `.tar` · `.tar.gz` · `.tar.bz2` · `.tar.xz` — pure Go |
 | Jump list | Frecency scoring · XDG data dir · JSON |
+| Clipboard | [atotto/clipboard](https://github.com/atotto/clipboard) — CGO-free |
 | CGO | Disabled. One static binary. |
 | Platforms | macOS · Linux (Tier 1) · Windows (Tier 2) |
 
@@ -178,7 +207,6 @@ Pelorus steals thoughtfully from:
 | [lf](https://github.com/gokcehan/lf) | Async IO pattern, nav/eval/ui separation |
 | [yazi](https://github.com/sxyazi/yazi) | Fuzzy-everywhere as interaction model, preview depth |
 | [zoxide](https://github.com/ajeetdsouza/zoxide) | Auto-ranked jump list |
-| [UploadThing](https://uploadthing.com) | The attitude — opinionated defaults, zero config to useful |
 
 ---
 
