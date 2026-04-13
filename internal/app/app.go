@@ -921,7 +921,20 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Preview scroll keys — handled before action dispatch.
+	// "/" always opens preview content search — opens the preview pane first if
+	// it isn't visible. No-op when no file is selected.
+	if key == "/" {
+		if sel := m.activeP().Selected(); sel != nil && !sel.IsDir {
+			if !m.showPreview {
+				m.showPreview = true
+				m.layoutPanes()
+			}
+			m.previewModel.OpenSearch()
+		}
+		return m, nil
+	}
+
+	// Preview scroll and search-navigation keys.
 	if m.showPreview {
 		// Route keys to preview search when open.
 		if m.previewModel.SearchOpen() {
@@ -937,11 +950,6 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
-		}
-		// Open search on "/".
-		if key == "/" {
-			m.previewModel.OpenSearch()
-			return m, nil
 		}
 		switch key {
 		case "]":
