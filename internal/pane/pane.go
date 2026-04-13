@@ -492,6 +492,14 @@ func (m *Model) View() string {
 	// Path header line — accent color when active, dim when inactive.
 	caps := m.Provider.Capabilities()
 	pathDisplay := m.Path
+	// Compress home directory to ~ for readability.
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if pathDisplay == home {
+			pathDisplay = "~"
+		} else if strings.HasPrefix(pathDisplay, home+"/") {
+			pathDisplay = "~/" + pathDisplay[len(home)+1:]
+		}
+	}
 	// Prefix remote paths with "user@hostname:" so origin is always visible.
 	if caps.RemoteLabel != "" {
 		pathDisplay = caps.RemoteLabel + ":" + m.Path

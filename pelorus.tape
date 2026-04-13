@@ -1,5 +1,8 @@
 # pelorus demo
 # Run with: vhs pelorus.tape
+#
+# Navigation uses arrow keys so j/k/h/l can't fall into typeahead filter.
+# Cursor positions are always reset to known state before counting moves.
 
 Output assets/pelorus.gif
 
@@ -12,171 +15,155 @@ Set Theme "GruvboxDark"
 Set PlaybackSpeed 1.0
 Set TypingSpeed 80ms
 
-# Launch in demo mode with gruvbox theme
+# ── Launch ───────────────────────────────────────────────────────────────────
 Hide
 Type "/Users/scott/go/bin/pelorus --demo --theme gruvbox"
 Enter
-Sleep 5s
+Sleep 8s
 Show
 
-# Pane opens on axiom/ — git status glyphs visible (M on server.go, user.go; ? on websocket.go)
-Sleep 1s
-
-# Toggle preview pane on
+# ── Preview pane ─────────────────────────────────────────────────────────────
+# Toggle preview on; cursor is at cmd/ (top of dirs-first list)
 Type "p"
 Sleep 1.5s
 
-# Navigate down to README.md — preview renders markdown
-Type "j"
-Sleep 150ms
-Type "j"
-Sleep 150ms
-Type "j"
-Sleep 150ms
-Type "j"
-Sleep 150ms
-Type "j"
-Sleep 150ms
-Type "j"
-Sleep 150ms
-Type "j"
-Sleep 150ms
-Type "j"
-Sleep 150ms
-Type "j"
-Sleep 1.5s
+# Navigate to README.md
+# dirs-first name sort: cmd(0) docs(1) internal(2) scripts(3) web(4) Makefile(5) README.md(6)
+Down
+Sleep 120ms
+Down
+Sleep 120ms
+Down
+Sleep 120ms
+Down
+Sleep 120ms
+Down
+Sleep 120ms
+Down
+Sleep 1.2s
 
-# Scroll through the rendered README
+# Preview shows rendered markdown — scroll through it
 Type "]"
-Sleep 400ms
+Sleep 500ms
 Type "]"
-Sleep 400ms
+Sleep 500ms
 Type "]"
-Sleep 400ms
+Sleep 500ms
 Type "]"
 Sleep 1s
 
-# Navigate to internal/ — enter it
-Type "k"
-Sleep 150ms
-Type "k"
-Sleep 150ms
-Type "k"
-Sleep 150ms
-Type "k"
-Sleep 150ms
-Type "k"
-Sleep 150ms
-Type "k"
+# ── Navigate into internal/api/server.go ─────────────────────────────────────
+# Go up to internal/ (README.md is index 6, internal is index 2: 4 ups)
+Up
+Sleep 120ms
+Up
+Sleep 120ms
+Up
+Sleep 120ms
+Up
+Sleep 600ms
+
+# Enter internal/ — cursor lands on api/ (first item)
+Right
+Sleep 1.2s
+
+# Enter api/ — cursor lands on routes.go (first item)
+Right
+Sleep 800ms
+
+# Move down to server.go (routes.go=0, server.go=1)
+Down
 Sleep 500ms
-Type "l"
-Sleep 1.2s
 
-# Preview shows api/ directory listing — enter api/
-Type "l"
-Sleep 1.2s
-
-# Preview shows server.go with syntax highlighting — navigate to it
-Type "l"
+# Preview shows syntax-highlighted Go
 Sleep 1.5s
 
-# Scroll through server.go
+# Scroll the file
 Type "]"
-Sleep 400ms
+Sleep 500ms
 Type "]"
-Sleep 400ms
+Sleep 500ms
 Type "]"
 Sleep 800ms
 
-# Search within the file preview
+# Search within preview
 Type "/"
 Sleep 600ms
 Type "ListenAndServe"
 Sleep 1.5s
-
-# Close search, back out to root
 Escape
-Sleep 500ms
-Type "h"
-Sleep 300ms
-Type "h"
-Sleep 300ms
-Type "h"
 Sleep 800ms
 
-# Demonstrate sort cycling
-Type "s"
-Sleep 900ms
-Type "s"
-Sleep 900ms
-Type "s"
-Sleep 900ms
-Type "s"
+# ── Back to axiom root ────────────────────────────────────────────────────────
+Left
+Sleep 400ms
+Left
 Sleep 800ms
 
-# Set a mark on this directory, then navigate away and jump back
+# ── Marks ────────────────────────────────────────────────────────────────────
+# Cursor is at internal/ after coming back up. Set mark 'a' here at axiom root.
 Type "ma"
 Sleep 700ms
 
-# Enter web/src/components/ using fuzzy filter
-Type "l"
-Sleep 500ms
-Type "web"
-Sleep 800ms
-Escape
-Sleep 300ms
-Type "l"
-Sleep 500ms
-Type "src"
-Sleep 800ms
-Escape
-Sleep 300ms
-Type "l"
+# Navigate one level into internal/
+Right
 Sleep 1s
 
 # Jump back to axiom root via mark
 Type "'a"
 Sleep 1.2s
 
-# Switch to right pane, navigate to docs/
+# ── Sort cycling ─────────────────────────────────────────────────────────────
+# Cursor is at internal/ (where it landed after 'a jump resets to top=0... or
+# clampCursor keeps it). Cycle sort — we only care about the visual, not position.
+Type "s"
+Sleep 900ms
+Type "s"
+Sleep 900ms
+Type "s"
+Sleep 900ms
+Type "s"
+Sleep 800ms
+
+# ── Right pane: docs/ ────────────────────────────────────────────────────────
+# Tab to right pane (cursor at cmd/ = 0, never moved right pane)
 Tab
 Sleep 600ms
-Type "j"
-Sleep 150ms
-Type "j"
-Sleep 150ms
-Type "j"
-Sleep 500ms
-Type "l"
+
+# Down once → docs/ (cmd=0, docs=1)
+Down
+Sleep 400ms
+
+# Enter docs/
+Right
 Sleep 1.2s
 
-# Navigate to api.md — preview shows rendered markdown
-Type "j"
+# Cursor lands on api.md (first item) — preview shows rendered markdown
 Sleep 1.5s
 
-# Resize split: grow left pane a bit
+# ── Pane resize ──────────────────────────────────────────────────────────────
+# Tab back to left pane to resize it
 Tab
 Sleep 400ms
 Type ">"
-Sleep 300ms
+Sleep 250ms
 Type ">"
-Sleep 300ms
+Sleep 250ms
 Type ">"
-Sleep 300ms
+Sleep 250ms
 Type ">"
 Sleep 800ms
 
-# Shrink back
 Type "<"
-Sleep 300ms
+Sleep 250ms
 Type "<"
-Sleep 300ms
+Sleep 250ms
 Type "<"
-Sleep 300ms
+Sleep 250ms
 Type "<"
 Sleep 800ms
 
-# Open recursive search overlay
+# ── Recursive file search ─────────────────────────────────────────────────────
 Ctrl+f
 Sleep 2s
 Type "postgres"
@@ -184,7 +171,7 @@ Sleep 1.5s
 Escape
 Sleep 800ms
 
-# Open command palette
+# ── Command palette ───────────────────────────────────────────────────────────
 Type ":"
 Sleep 1.5s
 Type "copy"
@@ -192,6 +179,6 @@ Sleep 1.2s
 Escape
 Sleep 800ms
 
-# Quit
+# ── Quit ─────────────────────────────────────────────────────────────────────
 Type "q"
 Sleep 500ms

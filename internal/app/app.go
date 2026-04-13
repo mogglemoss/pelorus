@@ -1003,11 +1003,23 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Printable single chars that are not bound -> start fuzzy filter on active pane.
-	if len(key) == 1 && key >= " " && key <= "~" {
-		ap.StartFilter()
-		ap.FilterStr = key
-		ap.ApplyFilterPublic()
-		return m, nil
+	// Only trigger for chars that can plausibly start a filename: letters, digits,
+	// dot (hidden files), underscore, hyphen. Symbols such as ] [ > < ! ' are
+	// reserved for actions and must never fall through to the filter, even when
+	// their action isn't currently active (e.g. ] scrolls preview, but shouldn't
+	// start a filter when the preview pane is closed).
+	if len(key) == 1 {
+		ch := key[0]
+		isFilenameStart := (ch >= 'a' && ch <= 'z') ||
+			(ch >= 'A' && ch <= 'Z') ||
+			(ch >= '0' && ch <= '9') ||
+			ch == '.' || ch == '_' || ch == '-'
+		if isFilenameStart {
+			ap.StartFilter()
+			ap.FilterStr = key
+			ap.ApplyFilterPublic()
+			return m, nil
+		}
 	}
 
 	return m, nil

@@ -10,14 +10,23 @@ import (
 	"path/filepath"
 )
 
-// Setup creates a temporary demo directory tree and returns its path plus a
-// cleanup function. The tree is a realistic-looking project directory with
-// several file types, nested structure, and a git repo so git-status glyphs
-// are visible.
+// Setup creates a demo directory tree under the user's home directory and
+// returns its path plus a cleanup function. Using $HOME keeps the breadcrumb
+// path short (compresses to ~ › pelorus-demo › axiom) for clean recordings.
 func Setup() (root string, cleanup func(), err error) {
-	root, err = os.MkdirTemp("", "pelorus-demo-*")
-	if err != nil {
-		return "", nil, fmt.Errorf("demo: create temp dir: %w", err)
+	home, herr := os.UserHomeDir()
+	if herr != nil {
+		home = os.Getenv("HOME")
+	}
+	if home == "" {
+		home = os.TempDir()
+	}
+	root = filepath.Join(home, "pelorus-demo")
+	if err = os.RemoveAll(root); err != nil {
+		return "", nil, fmt.Errorf("demo: clear existing demo dir: %w", err)
+	}
+	if err = os.MkdirAll(root, 0o755); err != nil {
+		return "", nil, fmt.Errorf("demo: create demo dir: %w", err)
 	}
 	cleanup = func() { os.RemoveAll(root) }
 
