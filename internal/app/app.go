@@ -667,6 +667,12 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// "R" / "shift+r" — bulk rename. Belt-and-suspenders: registered in keymap
+	// but some terminal/keyboard modes bypass the standard keymap lookup.
+	if key == "R" || key == "shift+r" {
+		return m, func() tea.Msg { return actions.BulkRenameMsg{} }
+	}
+
 	// Printable single chars that are not bound -> start fuzzy filter on active pane.
 	if len(key) == 1 && key >= " " && key <= "~" {
 		ap.StartFilter()
