@@ -42,6 +42,15 @@ type Theme struct {
 }
 
 // Get returns the named theme, defaulting to pelorus.
+//
+// Special behaviour for Omarchy users: when no explicit theme is configured
+// (name == "" or name == "pelorus"), Get attempts to read the active Omarchy
+// system theme from ~/.config/omarchy/current/theme/colors.toml. If found,
+// pelorus inherits that palette automatically — no config required. Any
+// explicit theme name (gruvbox, dracula, nord, light) overrides this.
+//
+// Setting theme = "omarchy" in config forces the Omarchy loader without
+// falling back to the pelorus default when omarchy is not detected.
 func Get(name string) Theme {
 	switch strings.ToLower(name) {
 	case "gruvbox":
@@ -53,8 +62,16 @@ func Get(name string) Theme {
 	case "dracula":
 		return DraculaTheme()
 	case "omarchy":
+		// Explicit opt-in: dynamic if available, static Catppuccin Mocha otherwise.
+		if t, ok := LoadOmarchyTheme(); ok {
+			return t
+		}
 		return OmarchyTheme()
 	default:
+		// Auto-detect: if running inside Omarchy, inherit the system palette.
+		if t, ok := LoadOmarchyTheme(); ok {
+			return t
+		}
 		return PelorusTheme()
 	}
 }
