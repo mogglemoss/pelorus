@@ -625,17 +625,86 @@ func renderChafa(path string, width, height int) (string, error) {
 		return "", err
 	}
 	s := string(out)
-	// Chafa may prepend IND (\x1bD) escape sequences to scroll the terminal
-	// down and create space for the image. Inside a bubbletea viewport these
-	// cause the layout to scroll/mangle. Strip them.
+	// Strip IND sequences that cause terminal scrolling inside bubbletea.
 	s = strings.ReplaceAll(s, "\x1bD", "")
 	s = strings.TrimRight(s, "\n")
-	// Ensure output ends with a full SGR reset so reverse video (\x1b[7m)
-	// and other attributes don't leak into the viewport padding or border.
-	if s != "" && !strings.HasSuffix(s, "\x1b[0m") {
-		s += "\x1b[0m"
-	}
+	// Convert reverse video sequences to explicit bg colors. Chafa uses
+	// \x1b[7m (reverse video) for half-block pixel encoding, but bubbletea's
+	// diff-based renderer can't track the swapped fg/bg state, causing layout
+	// corruption when it repaints partial lines.
+	s = resolveReverseVideo(s)
 	return s, nil
+}
+
+// resolveReverseVideo converts \x1b[7m (reverse video) sequences into explicit
+// background color codes so the output no longer relies on terminal-level
+// attribute swapping. This prevents bubbletea's renderer from corrupting the
+// layout when diffing frames that contain reverse video.
+func resolveReverseVideo(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+
+	reversed := false
+	var fgR, fgG, fgB int
+	hasFg := false
+
+	i := 0
+	for i < len(s) {
+		// Look for ESC[
+		if i+1 < len(s) && s[i] == '\x1b' && s[i+1] == '[' {
+			// Find the end of the SGR sequence
+			j := i + 2
+			for j < len(s) && s[j] != 'm' {
+				j++
+			}
+			if j < len(s) {
+				// Parse parameters
+				paramStr := s[i+2 : j]
+				if paramStr == "" || paramStr == "0" {
+					// Full reset — emit it, clear state
+					b.WriteString("\x1b[0m")
+					reversed = false
+					hasFg = false
+					i = j + 1
+					continue
+				}
+				if paramStr == "7" {
+					// Reverse video on — don't emit, just track state.
+					// Convert current fg to bg.
+					reversed = true
+					if hasFg {
+						fmt.Fprintf(&b, "\x1b[48;2;%d;%d;%dm", fgR, fgG, fgB)
+					}
+					i = j + 1
+					continue
+				}
+				// Check for fg color: 38;2;r;g;b
+				params := strings.Split(paramStr, ";")
+				if len(params) >= 5 && params[0] == "38" && params[1] == "2" {
+					r, _ := strconv.Atoi(params[2])
+					g, _ := strconv.Atoi(params[3])
+					bv, _ := strconv.Atoi(params[4])
+					if reversed {
+						// In reverse mode, "fg" becomes visible bg
+						fmt.Fprintf(&b, "\x1b[48;2;%d;%d;%dm", r, g, bv)
+					} else {
+						b.WriteString(s[i : j+1])
+					}
+					fgR, fgG, fgB = r, g, bv
+					hasFg = true
+					i = j + 1
+					continue
+				}
+				// Pass through other sequences
+				b.WriteString(s[i : j+1])
+				i = j + 1
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
 }
 
 func isImageExt(ext string) bool {
