@@ -34,7 +34,7 @@ Usage:
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "f", "", "config file (default: XDG config dir)")
-	rootCmd.PersistentFlags().StringVarP(&themeName, "theme", "t", "", "theme override (pelorus, gruvbox, nord, light, dracula, omarchy)")
+	rootCmd.PersistentFlags().StringVarP(&themeName, "theme", "t", "", "theme override (pelorus, gruvbox, nord, light, dracula, catppuccin, omarchy)")
 }
 
 // Execute runs the root command.

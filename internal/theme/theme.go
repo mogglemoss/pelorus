@@ -61,12 +61,14 @@ func Get(name string) Theme {
 		return LightTheme()
 	case "dracula":
 		return DraculaTheme()
+	case "catppuccin":
+		return CatppuccinTheme()
 	case "omarchy":
 		// Explicit opt-in: dynamic if available, static Catppuccin Mocha otherwise.
 		if t, ok := LoadOmarchyTheme(); ok {
 			return t
 		}
-		return OmarchyTheme()
+		return CatppuccinTheme()
 	default:
 		// Auto-detect: if running inside Omarchy, inherit the system palette.
 		if t, ok := LoadOmarchyTheme(); ok {
@@ -633,10 +635,10 @@ func DraculaTheme() Theme {
 }
 
 // ---------------------------------------------------------------------------
-// omarchy — catppuccin mocha (DHH's omarchy default palette)
+// catppuccin — catppuccin mocha
 // ---------------------------------------------------------------------------
 
-func OmarchyTheme() Theme {
+func CatppuccinTheme() Theme {
 	hdrBg := "#313244" // surface0
 	paneBg := "#1e1e2e" // base
 	statusBg := "#11111b" // crust
