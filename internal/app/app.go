@@ -168,6 +168,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Route all messages to Huh overlay when active.
 	if m.huhOverlay != nil {
+		// Huh uses ctrl+c to abort, not Escape. Intercept Escape ourselves
+		// so users can always back out of any dialog with the natural key.
+		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEsc {
+			m.huhOverlay = nil
+			m.statusMsg = "Cancelled"
+			return m, nil
+		}
 		newModel, cmd := m.huhOverlay.Update(msg)
 		if f, ok := newModel.(*huh.Form); ok {
 			m.huhOverlay = f
