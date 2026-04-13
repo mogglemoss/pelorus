@@ -1586,32 +1586,44 @@ func (m *Model) View() string {
 }
 
 // renderHeader builds the branded header bar (1 row).
-// Left: branding. Right: active pane indicator + key hints.
-// Path is not shown here — the status bar breadcrumb is the canonical location.
+// Left: branding + active directory name. Right: key hints only.
 func (m *Model) renderHeader() string {
-	paneLabel := "⬡ left"
-	if m.activePane == 1 {
-		paneLabel = "⬡ right"
+	ap := m.activeP()
+	caps := ap.Provider.Capabilities()
+
+	// Active directory name — just the final path component.
+	// For remote panes, prefix with hostname so context is clear.
+	dirName := filepath.Base(ap.Path)
+	if dirName == "." || dirName == "" {
+		dirName = "/"
+	}
+	if caps.IsRemote && caps.RemoteLabel != "" {
+		host := caps.RemoteLabel // "user@hostname"
+		// Just the hostname part for brevity in the header.
+		if at := strings.Index(host, "@"); at >= 0 {
+			host = host[at+1:]
+		}
+		dirName = host + ":" + dirName
 	}
 
-	left := "  PELORUS"
-	hints := "   " + paneLabel + "   ctrl+p palette   g jump   c connect  "
-	if m.activeP().Provider.Capabilities().IsRemote {
-		hints = "   " + paneLabel + "   ctrl+p palette   g jump   ctrl+d disconnect  "
+	// Key hints — context-sensitive: swap connect for disconnect on remote panes.
+	hints := "  ctrl+p palette   g jump   c connect  "
+	if caps.IsRemote {
+		hints = "  ctrl+p palette   g jump   ctrl+d disconnect  "
 	}
 
-	// Render each section with the appropriate theme style.
-	leftPart := m.theme.HeaderTitle.Render(left)
+	leftPart := m.theme.HeaderTitle.Render("  PELORUS")
+	dirPart := m.theme.HeaderHint.Render("  " + dirName)
 	rightPart := m.theme.HeaderHint.Render(hints)
 
-	// Fill the gap with the plain header background.
-	gapW := m.width - lipgloss.Width(leftPart) - lipgloss.Width(rightPart)
+	// Fill remaining space between dir name and hints.
+	gapW := m.width - lipgloss.Width(leftPart) - lipgloss.Width(dirPart) - lipgloss.Width(rightPart)
 	if gapW < 0 {
 		gapW = 0
 	}
 	gapPart := m.theme.Header.Width(gapW).Render("")
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, leftPart, gapPart, rightPart)
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPart, dirPart, gapPart, rightPart)
 }
 
 // renderStatusBar builds the status bar string.
