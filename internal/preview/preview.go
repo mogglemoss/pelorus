@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/glamour"
 	tea "github.com/charmbracelet/bubbletea"
@@ -43,6 +45,14 @@ type Model struct {
 
 	vp      viewport.Model
 	spinner spinner.Model
+
+	// Search state
+	searchOpen    bool
+	searchQuery   string
+	searchMatches []int // line indices with matches
+	matchIdx      int
+	rawContent    string // content before search highlighting
+	searchInput   textinput.Model
 }
 
 // New creates a new preview Model.
@@ -54,10 +64,15 @@ func New(t *theme.Theme) *Model {
 	vp := viewport.New(0, 0)
 	vp.Style = lipgloss.NewStyle().Background(lipgloss.Color("#0d1520"))
 
+	si := textinput.New()
+	si.Placeholder = "search…"
+	si.CharLimit = 128
+
 	return &Model{
-		Theme:   t,
-		spinner: s,
-		vp:      vp,
+		Theme:       t,
+		spinner:     s,
+		vp:          vp,
+		searchInput: si,
 	}
 }
 
@@ -89,8 +104,12 @@ func (m *Model) SetFile(fi *fileinfo.FileInfo) tea.Cmd {
 func (m *Model) SetContent(msg ContentReadyMsg) {
 	m.loading = false
 	m.err = msg.Err
+	m.rawContent = msg.Content
 	m.vp.SetContent(msg.Content)
 	m.vp.GotoTop()
+	if m.searchOpen && m.searchQuery != "" {
+		m.rebuildSearch()
+	}
 }
 
 // IsLoading reports whether content is currently being loaded.
@@ -115,6 +134,109 @@ func (m *Model) SetViewportSize(w, h int) {
 	}
 	m.vp.Width = w
 	m.vp.Height = h
+}
+
+// OpenSearch opens the inline search bar.
+func (m *Model) OpenSearch() {
+	m.searchOpen = true
+	m.searchQuery = ""
+	m.searchInput.SetValue("")
+	m.searchInput.Focus()
+	m.searchMatches = nil
+	m.matchIdx = 0
+}
+
+// CloseSearch closes the inline search bar and restores unhighlighted content.
+func (m *Model) CloseSearch() {
+	m.searchOpen = false
+	m.searchInput.Blur()
+	m.searchMatches = nil
+	m.vp.SetContent(m.rawContent)
+}
+
+// SearchOpen reports whether the search bar is open.
+func (m *Model) SearchOpen() bool { return m.searchOpen }
+
+// HandleSearchKey routes a key message to the search bar.
+// Returns true if the key was consumed.
+func (m *Model) HandleSearchKey(msg tea.KeyMsg) bool {
+	if !m.searchOpen {
+		return false
+	}
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.CloseSearch()
+		return true
+	case tea.KeyEnter:
+		m.nextMatch()
+		return true
+	default:
+		var cmd tea.Cmd
+		m.searchInput, cmd = m.searchInput.Update(msg)
+		_ = cmd
+		newQuery := m.searchInput.Value()
+		if newQuery != m.searchQuery {
+			m.searchQuery = newQuery
+			m.rebuildSearch()
+		}
+		return true
+	}
+}
+
+func (m *Model) nextMatch() {
+	if len(m.searchMatches) == 0 {
+		return
+	}
+	m.matchIdx = (m.matchIdx + 1) % len(m.searchMatches)
+	m.vp.SetYOffset(m.searchMatches[m.matchIdx])
+}
+
+func (m *Model) prevMatch() {
+	if len(m.searchMatches) == 0 {
+		return
+	}
+	m.matchIdx = (m.matchIdx - 1 + len(m.searchMatches)) % len(m.searchMatches)
+	m.vp.SetYOffset(m.searchMatches[m.matchIdx])
+}
+
+// NextMatch advances to the next search match.
+func (m *Model) NextMatch() { m.nextMatch() }
+
+// PrevMatch advances to the previous search match.
+func (m *Model) PrevMatch() { m.prevMatch() }
+
+var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*[mGKHF]`)
+
+func stripANSI(s string) string {
+	return ansiEscape.ReplaceAllString(s, "")
+}
+
+func (m *Model) rebuildSearch() {
+	m.searchMatches = nil
+	m.matchIdx = 0
+	if m.searchQuery == "" {
+		m.vp.SetContent(m.rawContent)
+		return
+	}
+	query := strings.ToLower(m.searchQuery)
+	lines := strings.Split(m.rawContent, "\n")
+	highlightStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color("#f9e2af")).
+		Foreground(lipgloss.Color("#1e1e2e"))
+	var out []string
+	for i, line := range lines {
+		plain := strings.ToLower(stripANSI(line))
+		if strings.Contains(plain, query) {
+			m.searchMatches = append(m.searchMatches, i)
+			out = append(out, highlightStyle.Render(stripANSI(line)))
+		} else {
+			out = append(out, line)
+		}
+	}
+	m.vp.SetContent(strings.Join(out, "\n"))
+	if len(m.searchMatches) > 0 {
+		m.vp.SetYOffset(m.searchMatches[0])
+	}
 }
 
 // ScrollDown scrolls the preview viewport down by n lines.
@@ -168,6 +290,9 @@ func (m *Model) View() string {
 
 	// Viewport area (innerH - 2 for header + separator).
 	vpH := innerH - 2
+	if m.searchOpen {
+		vpH--
+	}
 	if vpH < 1 {
 		vpH = 1
 	}
@@ -193,7 +318,23 @@ func (m *Model) View() string {
 		body = m.vp.View()
 	}
 
-	inner := lipgloss.JoinVertical(lipgloss.Left, header, separator, body)
+	var inner string
+	if m.searchOpen {
+		matchInfo := ""
+		if len(m.searchMatches) > 0 {
+			matchInfo = fmt.Sprintf(" [%d/%d]", m.matchIdx+1, len(m.searchMatches))
+		} else if m.searchQuery != "" {
+			matchInfo = " [no matches]"
+		}
+		searchBar := lipgloss.NewStyle().
+			Background(lipgloss.Color("#1a3040")).
+			Foreground(lipgloss.Color("#caf0e4")).
+			Width(innerW).
+			Render("/ " + m.searchInput.View() + matchInfo)
+		inner = lipgloss.JoinVertical(lipgloss.Left, header, separator, body, searchBar)
+	} else {
+		inner = lipgloss.JoinVertical(lipgloss.Left, header, separator, body)
+	}
 
 	return border.
 		Width(innerW).

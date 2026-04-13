@@ -73,6 +73,7 @@ type Model struct {
 	huhDeleteItems []fileinfo.FileInfo
 	huhRenameItems []fileinfo.FileInfo
 	huhRenameNames []string
+	huhInputValue  string // rename / new-file / new-dir single-input overlays
 
 	store *jump.Store
 
@@ -381,16 +382,72 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, f.Init()
 
 	case actions.RenameSelectedMsg:
-		m.activeP().StartRename()
-		return m, nil
+		sel := m.activeP().Selected()
+		if sel == nil {
+			m.statusMsg = "Nothing selected"
+			return m, nil
+		}
+		m.huhInputValue = sel.Name
+		m.huhMode = "rename"
+		f := huh.NewForm(huh.NewGroup(
+			huh.NewInput().
+				Title("Rename").
+				Description("Current: " + sel.Name).
+				Value(&m.huhInputValue).
+				Validate(func(s string) error {
+					if strings.TrimSpace(s) == "" {
+						return fmt.Errorf("name cannot be empty")
+					}
+					if strings.Contains(s, "/") {
+						return fmt.Errorf("name cannot contain /")
+					}
+					return nil
+				}),
+		)).WithTheme(pelorusHuhTheme()).WithWidth(56)
+		m.huhOverlay = f
+		return m, f.Init()
 
 	case actions.NewFileMsg:
-		m.activeP().StartNewFile()
-		return m, nil
+		m.huhInputValue = ""
+		m.huhMode = "new-file"
+		f := huh.NewForm(huh.NewGroup(
+			huh.NewInput().
+				Title("New File").
+				Placeholder("filename").
+				Value(&m.huhInputValue).
+				Validate(func(s string) error {
+					if strings.TrimSpace(s) == "" {
+						return fmt.Errorf("name cannot be empty")
+					}
+					if strings.Contains(s, "/") {
+						return fmt.Errorf("name cannot contain /")
+					}
+					return nil
+				}),
+		)).WithTheme(pelorusHuhTheme()).WithWidth(56)
+		m.huhOverlay = f
+		return m, f.Init()
 
 	case actions.NewDirMsg:
-		m.activeP().StartNewDir()
-		return m, nil
+		m.huhInputValue = ""
+		m.huhMode = "new-dir"
+		f := huh.NewForm(huh.NewGroup(
+			huh.NewInput().
+				Title("New Directory").
+				Placeholder("dirname").
+				Value(&m.huhInputValue).
+				Validate(func(s string) error {
+					if strings.TrimSpace(s) == "" {
+						return fmt.Errorf("name cannot be empty")
+					}
+					if strings.Contains(s, "/") {
+						return fmt.Errorf("name cannot contain /")
+					}
+					return nil
+				}),
+		)).WithTheme(pelorusHuhTheme()).WithWidth(56)
+		m.huhOverlay = f
+		return m, f.Init()
 
 	case actions.CopySelectedMsg:
 		cmd := m.enqueueCopy()
@@ -634,6 +691,26 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Preview scroll keys — handled before action dispatch.
 	if m.showPreview {
+		// Route keys to preview search when open.
+		if m.previewModel.SearchOpen() {
+			switch key {
+			case "n":
+				m.previewModel.NextMatch()
+				return m, nil
+			case "N", "shift+n":
+				m.previewModel.PrevMatch()
+				return m, nil
+			default:
+				if m.previewModel.HandleSearchKey(msg) {
+					return m, nil
+				}
+			}
+		}
+		// Open search on "/".
+		if key == "/" {
+			m.previewModel.OpenSearch()
+			return m, nil
+		}
 		switch key {
 		case "]":
 			m.previewModel.ScrollDown(3)
@@ -1160,10 +1237,17 @@ func (m *Model) View() string {
 	// Overlay Huh form (delete confirm, bulk rename) if active.
 	if m.huhOverlay != nil {
 		label := "Confirm"
-		if m.huhMode == "bulk-rename" {
+		switch m.huhMode {
+		case "bulk-rename":
 			label = fmt.Sprintf("Bulk Rename — %d items", len(m.huhRenameItems))
-		} else if m.huhMode == "delete" {
+		case "delete":
 			label = "Delete"
+		case "rename":
+			label = "Rename"
+		case "new-file":
+			label = "New File"
+		case "new-dir":
+			label = "New Directory"
 		}
 		header := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#00ffd0")).
@@ -1329,6 +1413,12 @@ func (m *Model) onHuhComplete() tea.Cmd {
 		return nil
 	case "bulk-rename":
 		return m.executeBulkRename()
+	case "rename":
+		return m.executeRename(m.huhInputValue)
+	case "new-file":
+		return m.executeNewFile(m.huhInputValue)
+	case "new-dir":
+		return m.executeNewDir(m.huhInputValue)
 	}
 	return nil
 }
@@ -1374,6 +1464,59 @@ func (m *Model) executeBulkRename() tea.Cmd {
 		m.statusMsg = fmt.Sprintf("Renamed %d item(s)", renamed)
 	}
 	return nil
+}
+
+func (m *Model) executeRename(newName string) tea.Cmd {
+	newName = strings.TrimSpace(newName)
+	if newName == "" {
+		return nil
+	}
+	ap := m.activeP()
+	sel := ap.Selected()
+	if sel == nil {
+		return nil
+	}
+	dst := filepath.Join(ap.Path, newName)
+	if err := ap.Provider.Rename(sel.Path, dst); err != nil {
+		m.statusMsg = "Rename failed: " + err.Error()
+		return nil
+	}
+	ap.Reload()
+	m.updateWatchers()
+	return m.updatePreview()
+}
+
+func (m *Model) executeNewFile(name string) tea.Cmd {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	ap := m.activeP()
+	target := filepath.Join(ap.Path, name)
+	f, err := os.Create(target)
+	if err != nil {
+		m.statusMsg = "Create failed: " + err.Error()
+		return nil
+	}
+	f.Close()
+	ap.Reload()
+	m.updateWatchers()
+	return m.updatePreview()
+}
+
+func (m *Model) executeNewDir(name string) tea.Cmd {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	ap := m.activeP()
+	if err := ap.Provider.MakeDir(filepath.Join(ap.Path, name)); err != nil {
+		m.statusMsg = "MakeDir failed: " + err.Error()
+		return nil
+	}
+	ap.Reload()
+	m.updateWatchers()
+	return m.updatePreview()
 }
 
 // pelorusHuhTheme returns a Huh theme matching the pelorus subaquatic aesthetic.

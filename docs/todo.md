@@ -6,17 +6,9 @@ Captured after the session that landed: multi-select, F-key aliases, trash, sort
 
 ## High priority
 
-**Rename / new file / new dir → Huh forms**
-The delete and bulk-rename flows use Huh modals. Rename (`r`), new file (`n`), and new dir (`N`) still use the old inline `textinput` embedded directly in the pane view. They should use the same floating Huh overlay pattern for consistency.
-Files: `internal/pane/pane.go`, `internal/app/app.go`
-
-**Filesystem watcher (auto-refresh)**
-If a file is created or deleted by another process, the active pane never updates until you navigate away and back. `fsnotify` is the standard Go solution. Should watch the active directory of each pane and emit a reload message on change. Local panes only; SFTP is best-effort.
-Files: new `internal/watcher/watcher.go`, wire into `internal/app/app.go`
-
-**Preview search**
-The preview pane uses Bubbles `viewport`, which natively supports `GotoTop`/`GotoBottom` but not interactive search. Add `/` to open an inline search bar within the preview that highlights and jumps to matches.
-Files: `internal/preview/preview.go`, `internal/app/app.go`
+~~**Rename / new file / new dir → Huh forms**~~ ✓ done
+~~**Filesystem watcher (auto-refresh)**~~ ✓ done (was already implemented with fsnotify + debounce)
+~~**Preview search**~~ ✓ done (`/` opens inline search bar, `n`/`N` cycle matches, `Escape` closes)
 
 ---
 

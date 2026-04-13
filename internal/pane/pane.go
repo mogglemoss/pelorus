@@ -23,9 +23,6 @@ type Mode int
 
 const (
 	ModeNormal Mode = iota
-	ModeRename
-	ModeNewFile
-	ModeNewDir
 	ModeFilter
 	ModeGotoPath
 )
@@ -163,7 +160,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch m.Mode {
-	case ModeRename, ModeNewFile, ModeNewDir, ModeGotoPath:
+	case ModeGotoPath:
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
 			switch msg.Type {
@@ -215,21 +212,6 @@ func (m *Model) commitInput() tea.Cmd {
 
 	var err error
 	switch m.Mode {
-	case ModeRename:
-		sel := m.Selected()
-		if sel != nil {
-			dst := filepath.Join(m.Path, val)
-			err = m.Provider.Rename(sel.Path, dst)
-		}
-	case ModeNewFile:
-		target := filepath.Join(m.Path, val)
-		f, ferr := os.Create(target)
-		if ferr == nil {
-			f.Close()
-		}
-		err = ferr
-	case ModeNewDir:
-		err = m.Provider.MakeDir(filepath.Join(m.Path, val))
 	case ModeGotoPath:
 		target := expandPath(val)
 		info, serr := os.Stat(target)
@@ -377,31 +359,6 @@ func (m *Model) GoParent() {
 func (m *Model) ToggleHidden() {
 	m.ShowHidden = !m.ShowHidden
 	m.reload()
-}
-
-func (m *Model) StartRename() {
-	sel := m.Selected()
-	if sel == nil {
-		return
-	}
-	m.Mode = ModeRename
-	m.Input.SetValue(sel.Name)
-	m.Input.Focus()
-	m.Input.CursorEnd()
-}
-
-func (m *Model) StartNewFile() {
-	m.Mode = ModeNewFile
-	m.Input.SetValue("")
-	m.Input.Placeholder = "filename"
-	m.Input.Focus()
-}
-
-func (m *Model) StartNewDir() {
-	m.Mode = ModeNewDir
-	m.Input.SetValue("")
-	m.Input.Placeholder = "dirname"
-	m.Input.Focus()
 }
 
 func (m *Model) StartFilter() {
@@ -555,12 +512,6 @@ func (m *Model) View() string {
 	// Inline input line.
 	var inputPrompt string
 	switch m.Mode {
-	case ModeRename:
-		inputPrompt = "Rename: "
-	case ModeNewFile:
-		inputPrompt = "New file: "
-	case ModeNewDir:
-		inputPrompt = "New dir: "
 	case ModeGotoPath:
 		inputPrompt = "Go to: "
 	}
