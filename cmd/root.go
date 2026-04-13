@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
@@ -52,11 +55,26 @@ func Execute() {
 func run(cmd *cobra.Command, args []string) error {
 	// Demo mode: build a sandboxed temp filesystem and use it as the start dir.
 	if demoMode {
-		demoRoot, cleanup, err := demo.Setup()
+		demoRoot, rawCleanup, err := demo.Setup()
 		if err != nil {
 			return fmt.Errorf("demo setup: %w", err)
 		}
+		// Wrap in sync.Once so cleanup is safe to call from both defer and the
+		// signal handler without risk of double-removal.
+		var once sync.Once
+		cleanup := func() { once.Do(rawCleanup) }
 		defer cleanup()
+
+		// Ensure ~/pelorus-demo is removed even when the process is killed with
+		// ctrl+c or SIGTERM (os.Exit skips deferred calls).
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+		go func() {
+			<-sigCh
+			cleanup()
+			os.Exit(0)
+		}()
+
 		// Point into the axiom project inside the demo root.
 		args = []string{filepath.Join(demoRoot, "axiom")}
 	}

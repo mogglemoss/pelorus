@@ -23,7 +23,10 @@ Sleep 8s
 Show
 
 # ── Preview pane ─────────────────────────────────────────────────────────────
-# Toggle preview on; cursor is at cmd/ (top of dirs-first list)
+# Reset to known state: close if already open (user config may have it on),
+# then open so the tape always starts with preview visible.
+Type "p"
+Sleep 400ms
 Type "p"
 Sleep 1.5s
 
