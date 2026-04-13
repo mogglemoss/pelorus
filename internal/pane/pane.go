@@ -268,6 +268,22 @@ func (m *Model) CursorDown() {
 	}
 }
 
+// ScrollUp moves the cursor up by n rows (clamped to top).
+func (m *Model) ScrollUp(n int) {
+	m.Cursor -= n
+	if m.Cursor < 0 {
+		m.Cursor = 0
+	}
+}
+
+// ScrollDown moves the cursor down by n rows (clamped to bottom).
+func (m *Model) ScrollDown(n int) {
+	m.Cursor += n
+	if max := len(m.Filtered) - 1; m.Cursor > max {
+		m.Cursor = max
+	}
+}
+
 func (m *Model) EnterSelected() tea.Cmd {
 	sel := m.Selected()
 	if sel == nil {

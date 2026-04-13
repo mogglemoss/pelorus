@@ -182,6 +182,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.searchModel.Width = msg.Width
 		m.searchModel.Height = msg.Height
 		return m, tea.Batch(m.updatePreview(), m.updateGitStatus())
+
+	case tea.MouseMsg:
+		return m, m.handleMouse(msg)
 	}
 
 	// Route all messages to Huh overlay when active.
@@ -1315,6 +1318,75 @@ func (m *Model) closeAllSFTP() {
 // Close shuts down all open SFTP connections. Call before quitting.
 func (m *Model) Close() {
 	m.closeAllSFTP()
+}
+
+// handleMouse processes mouse events: scroll wheel on panes/preview,
+// and left-click to focus the pane under the cursor.
+func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
+	// Ignore mouse while any overlay is open.
+	if m.huhOverlay != nil || m.paletteOpen || m.jumpOpen ||
+		m.connectOpen || m.helpOpen || m.queueOpen || m.searchOpen {
+		return nil
+	}
+
+	// Layout geometry (mirrors layoutPanes).
+	// Row 0 = header; panes start at row 1.
+	const headerRows = 1
+	paneRow := msg.Y - headerRows // row within the pane area
+
+	left0 := 0
+	left1 := m.panes[0].Width // column where divider sits
+	right0 := left1 + 1       // first column of right pane
+	right1 := right0 + m.panes[1].Width
+
+	// Determine which zone the click/scroll is in.
+	inLeft := msg.X >= left0 && msg.X < left1
+	inRight := msg.X >= right0 && msg.X < right1
+	inPreview := m.showPreview && msg.X >= right1+1
+
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		if inPreview {
+			m.previewModel.ScrollUp(3)
+			return nil
+		}
+		if inLeft || (!inRight && m.activePane == 0) {
+			m.panes[0].ScrollUp(3)
+		} else {
+			m.panes[1].ScrollUp(3)
+		}
+		return m.updatePreview()
+
+	case tea.MouseButtonWheelDown:
+		if inPreview {
+			m.previewModel.ScrollDown(3)
+			return nil
+		}
+		if inLeft || (!inRight && m.activePane == 0) {
+			m.panes[0].ScrollDown(3)
+		} else {
+			m.panes[1].ScrollDown(3)
+		}
+		return m.updatePreview()
+
+	case tea.MouseButtonLeft:
+		if paneRow < 0 {
+			return nil // click in header
+		}
+		if inLeft && m.activePane != 0 {
+			m.panes[m.activePane].IsActive = false
+			m.activePane = 0
+			m.panes[0].IsActive = true
+			return m.updatePreview()
+		}
+		if inRight && m.activePane != 1 {
+			m.panes[m.activePane].IsActive = false
+			m.activePane = 1
+			m.panes[1].IsActive = true
+			return m.updatePreview()
+		}
+	}
+	return nil
 }
 
 // openInEditor opens the given path in the configured editor.
