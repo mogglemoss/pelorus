@@ -697,8 +697,24 @@ func (m *Model) keyToAction(key string) (string, bool) {
 		key = "l"
 	}
 
-	id, ok := m.keyMap[key]
-	return id, ok
+	if id, ok := m.keyMap[key]; ok {
+		return id, ok
+	}
+
+	// Kitty keyboard protocol / enhanced keyboard mode reports shift+letter as
+	// "shift+r" rather than "R". Normalise to the uppercase character so that
+	// keybindings registered as e.g. "R" are found regardless of terminal.
+	if strings.HasPrefix(key, "shift+") {
+		remainder := key[len("shift+"):]
+		if len(remainder) == 1 && remainder[0] >= 'a' && remainder[0] <= 'z' {
+			upper := strings.ToUpper(remainder)
+			if id, ok := m.keyMap[upper]; ok {
+				return id, ok
+			}
+		}
+	}
+
+	return "", false
 }
 
 func (m *Model) handleNav(dir string) tea.Cmd {
