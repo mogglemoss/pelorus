@@ -1365,9 +1365,25 @@ func (m *Model) Close() {
 // handleMouse processes mouse events: scroll wheel on panes/preview,
 // and left-click to focus the pane under the cursor.
 func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
-	// Ignore mouse while any overlay is open.
-	if m.huhOverlay != nil || m.paletteOpen || m.jumpOpen ||
-		m.connectOpen || m.helpOpen || m.queueOpen || m.searchOpen {
+	// Route scroll to whichever overlay is open.
+	if m.paletteOpen {
+		m.paletteModel, _ = m.paletteModel.Update(msg)
+		return nil
+	}
+	if m.jumpOpen {
+		m.jumpModel, _ = m.jumpModel.Update(msg)
+		return nil
+	}
+	if m.connectOpen && m.connectModel != nil {
+		m.connectModel, _ = m.connectModel.Update(msg)
+		return nil
+	}
+	if m.searchOpen {
+		m.searchModel, _ = m.searchModel.Update(msg)
+		return nil
+	}
+	// Ignore mouse for other overlays (huh, help, queue).
+	if m.huhOverlay != nil || m.helpOpen || m.queueOpen {
 		return nil
 	}
 

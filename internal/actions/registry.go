@@ -38,13 +38,14 @@ type AppState struct {
 
 // Action represents a named, bindable operation.
 type Action struct {
-	ID          string
-	Name        string
-	Description string
-	Category    string
-	Handler     func(state AppState) tea.Cmd
-	Context     ActionContext
-	Keybinding  string
+	ID               string
+	Name             string
+	Description      string
+	Category         string
+	Handler          func(state AppState) tea.Cmd
+	Context          ActionContext
+	Keybinding       string
+	ExtraKeybindings []string // additional keys that also trigger this action
 }
 
 // Registry stores and retrieves actions.
@@ -132,6 +133,11 @@ func BuildKeyMap(r *Registry) map[string]string {
 	for _, a := range r.All() {
 		if a.Keybinding != "" {
 			km[a.Keybinding] = a.ID
+		}
+		for _, k := range a.ExtraKeybindings {
+			if k != "" {
+				km[k] = a.ID
+			}
 		}
 	}
 	return km

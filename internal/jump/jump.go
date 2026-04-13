@@ -195,6 +195,20 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if mouseMsg, ok := msg.(tea.MouseMsg); ok {
+		switch mouseMsg.Button {
+		case tea.MouseButtonWheelUp:
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		case tea.MouseButtonWheelDown:
+			if m.cursor < len(m.filtered)-1 {
+				m.cursor++
+			}
+		}
+		return m, nil
+	}
+
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil

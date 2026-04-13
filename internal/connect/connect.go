@@ -319,8 +319,22 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	return m.updateList(msg)
 }
 
-// updateList handles key events in the host list state.
+// updateList handles key and mouse events in the host list state.
 func (m *Model) updateList(msg tea.Msg) (*Model, tea.Cmd) {
+	if mouseMsg, ok := msg.(tea.MouseMsg); ok {
+		switch mouseMsg.Button {
+		case tea.MouseButtonWheelUp:
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		case tea.MouseButtonWheelDown:
+			if m.cursor < len(m.filteredItems)-1 {
+				m.cursor++
+			}
+		}
+		return m, nil
+	}
+
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil

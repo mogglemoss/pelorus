@@ -186,12 +186,13 @@ func RegisterBuiltins(r *Registry) {
 			},
 		},
 		{
-			ID:          "file.delete",
-			Name:        "Delete",
-			Description: "Delete the selected file or directory",
-			Category:    "File",
-			Context:     CtxFileSelected,
-			Keybinding:  "d",
+			ID:               "file.delete",
+			Name:             "Delete",
+			Description:      "Permanently delete the selected file or directory",
+			Category:         "File",
+			Context:          CtxFileSelected,
+			Keybinding:       "d",
+			ExtraKeybindings: []string{"shift+f8"},
 			Handler: func(_ AppState) tea.Cmd {
 				return func() tea.Msg { return DeleteSelectedMsg{} }
 			},
@@ -208,45 +209,49 @@ func RegisterBuiltins(r *Registry) {
 			},
 		},
 		{
-			ID:          "file.new-file",
-			Name:        "New File",
-			Description: "Create a new file in the current directory",
-			Category:    "File",
-			Context:     CtxAlways,
-			Keybinding:  "n",
+			ID:               "file.new-file",
+			Name:             "New File",
+			Description:      "Create a new file in the current directory",
+			Category:         "File",
+			Context:          CtxAlways,
+			Keybinding:       "n",
+			ExtraKeybindings: []string{"shift+f7"},
 			Handler: func(_ AppState) tea.Cmd {
 				return func() tea.Msg { return NewFileMsg{} }
 			},
 		},
 		{
-			ID:          "file.new-dir",
-			Name:        "New Directory",
-			Description: "Create a new directory in the current directory",
-			Category:    "File",
-			Context:     CtxAlways,
-			Keybinding:  "N",
+			ID:               "file.new-dir",
+			Name:             "New Directory",
+			Description:      "Create a new directory in the current directory",
+			Category:         "File",
+			Context:          CtxAlways,
+			Keybinding:       "N",
+			ExtraKeybindings: []string{"f7"},
 			Handler: func(_ AppState) tea.Cmd {
 				return func() tea.Msg { return NewDirMsg{} }
 			},
 		},
 		{
-			ID:          "file.copy",
-			Name:        "Copy to Other Pane",
-			Description: "Copy selected file to the other pane's directory",
-			Category:    "File",
-			Context:     CtxFileSelected,
-			Keybinding:  "C",
+			ID:               "file.copy",
+			Name:             "Copy to Other Pane",
+			Description:      "Copy selected file to the other pane's directory",
+			Category:         "File",
+			Context:          CtxFileSelected,
+			Keybinding:       "C",
+			ExtraKeybindings: []string{"f5"},
 			Handler: func(_ AppState) tea.Cmd {
 				return func() tea.Msg { return CopySelectedMsg{} }
 			},
 		},
 		{
-			ID:          "file.move",
-			Name:        "Move to Other Pane",
-			Description: "Move selected file to the other pane's directory",
-			Category:    "File",
-			Context:     CtxFileSelected,
-			Keybinding:  "M",
+			ID:               "file.move",
+			Name:             "Move to Other Pane",
+			Description:      "Move selected file to the other pane's directory",
+			Category:         "File",
+			Context:          CtxFileSelected,
+			Keybinding:       "M",
+			ExtraKeybindings: []string{"f6"},
 			Handler: func(_ AppState) tea.Cmd {
 				return func() tea.Msg { return MoveSelectedMsg{} }
 			},
@@ -373,80 +378,26 @@ func RegisterBuiltins(r *Registry) {
 			},
 		},
 		{
-			ID:          "file.open-editor",
-			Name:        "Open in Editor",
-			Description: "Open selected file in the configured editor",
-			Category:    "File",
-			Context:     CtxFileSelected,
-			Keybinding:  "f4",
+			ID:               "file.open-editor",
+			Name:             "Open in Editor",
+			Description:      "Open selected file in the configured editor",
+			Category:         "File",
+			Context:          CtxFileSelected,
+			Keybinding:       "f4",
 			Handler: func(_ AppState) tea.Cmd {
 				return func() tea.Msg { return OpenEditorMsg{} }
 			},
 		},
 		{
-			ID:          "file.copy-f5",
-			Name:        "Copy (F5)",
-			Description: "Copy selected item to the other pane",
-			Category:    "File",
-			Context:     CtxFileSelected,
-			Keybinding:  "f5",
-			Handler: func(_ AppState) tea.Cmd {
-				return func() tea.Msg { return CopySelectedMsg{} }
-			},
-		},
-		{
-			ID:          "file.move-f6",
-			Name:        "Move (F6)",
-			Description: "Move selected item to the other pane",
-			Category:    "File",
-			Context:     CtxFileSelected,
-			Keybinding:  "f6",
-			Handler: func(_ AppState) tea.Cmd {
-				return func() tea.Msg { return MoveSelectedMsg{} }
-			},
-		},
-		{
-			ID:          "file.new-dir-f7",
-			Name:        "New Directory (F7)",
-			Description: "Create a new directory in the current pane",
-			Category:    "File",
-			Context:     CtxAlways,
-			Keybinding:  "f7",
-			Handler: func(_ AppState) tea.Cmd {
-				return func() tea.Msg { return NewDirMsg{} }
-			},
-		},
-		{
-			ID:          "file.new-file-sf7",
-			Name:        "New File (⇧F7)",
-			Description: "Create a new file in the current pane",
-			Category:    "File",
-			Context:     CtxAlways,
-			Keybinding:  "shift+f7",
-			Handler: func(_ AppState) tea.Cmd {
-				return func() tea.Msg { return NewFileMsg{} }
-			},
-		},
-		{
-			ID:          "file.trash",
-			Name:        "Move to Trash (F8)",
-			Description: "Move selected item(s) to the OS trash",
-			Category:    "File",
-			Context:     CtxFileSelected,
-			Keybinding:  "f8",
+			ID:               "file.trash",
+			Name:             "Move to Trash",
+			Description:      "Move selected item(s) to the OS trash",
+			Category:         "File",
+			Context:          CtxFileSelected,
+			Keybinding:       "f8",
+			ExtraKeybindings: []string{"delete"},
 			Handler: func(_ AppState) tea.Cmd {
 				return func() tea.Msg { return TrashMsg{} }
-			},
-		},
-		{
-			ID:          "file.delete-sf8",
-			Name:        "Delete Permanently (⇧F8)",
-			Description: "Permanently delete selected item(s)",
-			Category:    "File",
-			Context:     CtxFileSelected,
-			Keybinding:  "shift+f8",
-			Handler: func(_ AppState) tea.Cmd {
-				return func() tea.Msg { return DeleteSelectedMsg{} }
 			},
 		},
 		{

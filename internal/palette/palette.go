@@ -121,6 +121,19 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			if m.Cursor > 0 {
+				m.Cursor--
+			}
+		case tea.MouseButtonWheelDown:
+			if m.Cursor < len(m.Filtered)-1 {
+				m.Cursor++
+			}
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyEsc:
@@ -298,14 +311,24 @@ func (m *Model) renderFlat(sb *strings.Builder, innerW, maxItems int) {
 
 // formatActionLabel builds the display label for an action row.
 func formatActionLabel(a actions.Action, maxW int) string {
-	kb := a.Keybinding
-	if kb == " " {
-		kb = "space"
+	// Collect all keybindings for display.
+	var kbs []string
+	if a.Keybinding != "" {
+		kb := a.Keybinding
+		if kb == " " {
+			kb = "space"
+		}
+		kbs = append(kbs, kb)
+	}
+	for _, k := range a.ExtraKeybindings {
+		if k != "" {
+			kbs = append(kbs, k)
+		}
 	}
 
 	var label string
-	if kb != "" {
-		label = "  " + a.Name + " [" + kb + "]"
+	if len(kbs) > 0 {
+		label = "  " + a.Name + " [" + strings.Join(kbs, " · ") + "]"
 	} else {
 		label = "  " + a.Name
 	}
