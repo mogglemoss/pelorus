@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -46,8 +47,9 @@ type TsNodesMsg struct{ Nodes []tsutil.Node }
 type connectState int
 
 const (
-	stateList connectState = iota
-	stateForm
+	stateList    connectState = iota
+	stateForm                 // detail form for a known host or Tailscale node
+	stateNewForm              // 4-field form for a hand-typed new host
 )
 
 // formField pairs a label with its textinput model.
@@ -180,6 +182,8 @@ func (m *Model) buildItems() {
 }
 
 // applyFilter recomputes filteredItems based on the current input value.
+// When the input is non-empty a synthetic "new connection" item is always
+// appended so the user can connect to a host not in ~/.ssh/config.
 func (m *Model) applyFilter() {
 	query := m.input.Value()
 	if query == "" {
@@ -195,35 +199,101 @@ func (m *Model) applyFilter() {
 	}
 
 	matches := fuzzy.Find(query, targets)
-	m.filteredItems = make([]item, 0, len(matches))
+	m.filteredItems = make([]item, 0, len(matches)+1)
 	for _, match := range matches {
 		m.filteredItems = append(m.filteredItems, m.allItems[match.Index])
 	}
+
+	// Synthetic item: always let the user connect to what they typed.
+	m.filteredItems = append(m.filteredItems, item{
+		kind:    "new",
+		display: query,
+	})
 	m.cursor = 0
+}
+
+// parseAdHocHost breaks a string of the form [user@]host[:port] into parts.
+func parseAdHocHost(s string) (user, host string, port int) {
+	port = 22
+	// Split user@ prefix.
+	if idx := strings.Index(s, "@"); idx >= 0 {
+		user = s[:idx]
+		s = s[idx+1:]
+	}
+	// Split :port suffix.
+	if idx := strings.LastIndex(s, ":"); idx >= 0 {
+		if p, err := strconv.Atoi(s[idx+1:]); err == nil && p > 0 {
+			port = p
+			s = s[:idx]
+		}
+	}
+	host = s
+	return
 }
 
 // openForm transitions from list state to form state for the given item.
 func (m *Model) openForm(selected item) {
-	m.state = stateForm
+	m.selectedHost = nil
+	m.selectedNode = nil
 
-	// Determine pre-fill values.
+	if selected.kind == "new" {
+		// Ad-hoc host: 4-field form — Hostname, Username, Port, Password.
+		m.state = stateNewForm
+		parsedUser, parsedHost, parsedPort := parseAdHocHost(selected.display)
+		if parsedUser == "" {
+			parsedUser = osCurrentUser()
+		}
+
+		hostField := textinput.New()
+		hostField.Placeholder = "hostname or IP"
+		hostField.SetValue(parsedHost)
+		hostField.CharLimit = 253
+		hostField.Focus()
+
+		userField := textinput.New()
+		userField.Placeholder = "username"
+		userField.SetValue(parsedUser)
+		userField.CharLimit = 64
+
+		portField := textinput.New()
+		portField.Placeholder = "22"
+		portField.SetValue(fmt.Sprintf("%d", parsedPort))
+		portField.CharLimit = 6
+
+		passField := textinput.New()
+		passField.Placeholder = "optional"
+		passField.EchoMode = textinput.EchoPassword
+		passField.CharLimit = 256
+
+		m.formFields = []formField{
+			{label: "Hostname", input: hostField},
+			{label: "Username", input: userField},
+			{label: "Port    ", input: portField},
+			{label: "Password", input: passField},
+		}
+		m.formCursor = 0
+		// If we already parsed a full hostname, jump focus to Username.
+		if parsedHost != "" {
+			m.focusFormField(1)
+		}
+		return
+	}
+
+	// Known host or Tailscale node: 3-field form.
+	m.state = stateForm
 	username := ""
 	port := 22
 	if selected.kind == "ssh" {
 		h := selected.ssh
 		m.selectedHost = &h
-		m.selectedNode = nil
 		username = h.User
 		port = h.Port
 	} else {
 		n := selected.ts
-		m.selectedHost = nil
 		m.selectedNode = &n
-		// Username: fall back to OS user.
 		username = osCurrentUser()
 	}
 
-	// Build form fields.
 	userField := textinput.New()
 	userField.Placeholder = "username"
 	userField.SetValue(username)
@@ -262,16 +332,42 @@ func (m *Model) focusFormField(idx int) {
 
 // submitForm emits a ConnectMsg with form values.
 func (m *Model) submitForm() tea.Cmd {
+	m.active = false
+
+	if m.state == stateNewForm {
+		// Ad-hoc connection: field order is Hostname, Username, Port, Password.
+		hostname := strings.TrimSpace(m.formFields[0].input.Value())
+		username := m.formFields[1].input.Value()
+		portStr := m.formFields[2].input.Value()
+		password := m.formFields[3].input.Value()
+		if hostname == "" {
+			m.active = false
+			return func() tea.Msg { return CloseConnectMsg{} }
+		}
+		port := 22
+		if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
+			port = p
+		}
+		h := SSHHost{
+			Alias:    hostname,
+			HostName: hostname,
+			User:     username,
+			Port:     port,
+		}
+		return func() tea.Msg {
+			return ConnectMsg{Host: &h, Username: username, Password: password, Port: port}
+		}
+	}
+
+	// Known host or Tailscale node form: Hostname, Port, Password fields.
 	username := m.formFields[0].input.Value()
 	portStr := m.formFields[1].input.Value()
 	password := m.formFields[2].input.Value()
 
 	port := 22
-	if p, err := fmt.Sscanf(portStr, "%d", &port); p != 1 || err != nil {
-		port = 22
+	if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
+		port = p
 	}
-
-	m.active = false
 
 	if m.selectedHost != nil {
 		h := *m.selectedHost
@@ -313,7 +409,7 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 	}
 
 	// Route to the appropriate state handler.
-	if m.state == stateForm {
+	if m.state == stateForm || m.state == stateNewForm {
 		return m.updateForm(msg)
 	}
 	return m.updateList(msg)
@@ -454,7 +550,7 @@ func (m *Model) updateForm(msg tea.Msg) (*Model, tea.Cmd) {
 
 // View renders the connect palette overlay.
 func (m *Model) View() string {
-	if m.state == stateForm {
+	if m.state == stateForm || m.state == stateNewForm {
 		return m.viewForm()
 	}
 	return m.viewList()
@@ -484,16 +580,20 @@ func (m *Model) viewList() string {
 	sb.WriteString(strings.Repeat("─", boxW-4))
 	sb.WriteString("\n")
 
-	// Separate filtered items by kind.
+	// Separate filtered items by kind (exclude the synthetic "new" item).
 	var sshItems, tsItems []item
 	var sshIndices, tsIndices []int
+	newItemIdx := -1
 	for i, it := range m.filteredItems {
-		if it.kind == "ssh" {
+		switch it.kind {
+		case "ssh":
 			sshIndices = append(sshIndices, i)
 			sshItems = append(sshItems, it)
-		} else {
+		case "ts":
 			tsIndices = append(tsIndices, i)
 			tsItems = append(tsItems, it)
+		case "new":
+			newItemIdx = i
 		}
 	}
 
@@ -594,17 +694,32 @@ func (m *Model) viewList() string {
 		}
 	}
 
-	// No results at all.
-	if len(m.filteredItems) == 0 && m.tsLoaded {
-		empty := m.Theme.PaletteItem.Width(boxW - 4).Render("No matching hosts")
-		sb.WriteString(empty)
+	// Synthetic "new connection" item — shown when the user has typed something.
+	if newItemIdx >= 0 {
+		sb.WriteString("\n")
+		query := m.filteredItems[newItemIdx].display
+		label := fmt.Sprintf("  + Connect to %q", query)
+		if lipgloss.Width(label) > boxW-4 {
+			label = label[:boxW-5] + "…"
+		}
+		var style lipgloss.Style
+		if newItemIdx == m.cursor {
+			style = m.Theme.PaletteSelected.Width(boxW - 4)
+		} else {
+			style = m.Theme.PaletteItem.Copy().Faint(true).Width(boxW - 4)
+		}
+		sb.WriteString(style.Render(label))
 		sb.WriteString("\n")
 	}
 
 	// Footer hints.
 	sb.WriteString("\n")
 	footerStyle := m.Theme.PaletteItem.Copy().Faint(true)
-	sb.WriteString(footerStyle.Width(boxW - 4).Render("  enter select · esc close"))
+	hint := "  enter select · esc close"
+	if m.input.Value() == "" {
+		hint = "  type to filter · or enter user@host · esc close"
+	}
+	sb.WriteString(footerStyle.Width(boxW - 4).Render(hint))
 
 	content := strings.TrimRight(sb.String(), "\n")
 	return m.Theme.PaletteBox.Width(boxW).Render(content)
@@ -620,13 +735,17 @@ func (m *Model) viewForm() string {
 	var sb strings.Builder
 
 	// Header.
-	header := m.Theme.PaletteSelected.Width(boxW - 4).Render("Connection Details")
+	title := "Connection Details"
+	if m.state == stateNewForm {
+		title = "New Connection"
+	}
+	header := m.Theme.PaletteSelected.Width(boxW - 4).Render(title)
 	sb.WriteString(header)
 	sb.WriteString("\n")
 	sb.WriteString(strings.Repeat("─", boxW-4))
 	sb.WriteString("\n")
 
-	// Host info line.
+	// Host info line (only for known hosts / Tailscale nodes).
 	hostInfo := ""
 	if m.selectedHost != nil {
 		hostInfo = fmt.Sprintf("%s (%s)", m.selectedHost.Alias, m.selectedHost.HostName)
@@ -637,6 +756,8 @@ func (m *Model) viewForm() string {
 		hostLine := m.Theme.PaletteItem.Width(boxW - 4).Render("  Host:     " + hostInfo)
 		sb.WriteString(hostLine)
 		sb.WriteString("\n\n")
+	} else if m.state == stateNewForm {
+		sb.WriteString("\n")
 	}
 
 	// Form fields.

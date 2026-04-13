@@ -139,13 +139,20 @@ func lstatToFileInfo(path string, linfo os.FileInfo) fileinfo.FileInfo {
 		target, err := os.Readlink(path)
 		if err == nil {
 			fi.SymlinkTarget = target
-			// Resolve to detect broken symlinks.
-			if !filepath.IsAbs(target) {
-				target = filepath.Join(filepath.Dir(path), target)
+			// Resolve the target to get real metadata (size, IsDir).
+			absTarget := target
+			if !filepath.IsAbs(absTarget) {
+				absTarget = filepath.Join(filepath.Dir(path), absTarget)
 			}
-			if _, err := os.Stat(target); err != nil {
+			if tstat, serr := os.Stat(absTarget); serr == nil {
+				// Follow the link: use target's IsDir and Size, not the link's.
+				fi.IsDir = tstat.IsDir()
+				fi.Size = tstat.Size()
+			} else {
 				fi.SymlinkBroken = true
 			}
+		} else {
+			fi.SymlinkBroken = true
 		}
 	}
 
