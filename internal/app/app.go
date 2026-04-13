@@ -12,6 +12,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
@@ -100,8 +101,8 @@ type Model struct {
 	splitRatio float64 // left-pane share of usable width (0.0–1.0); 0 = 50/50
 
 	// Run-command prompt state.
-	cmdPromptOpen bool
-	cmdPromptBuf  string
+	cmdPromptOpen  bool
+	cmdPromptInput textinput.Model
 
 	statusMsg string // transient message shown in status bar
 	gitBranch string // current git branch for active pane's repo
@@ -136,6 +137,10 @@ func New(
 	m.helpModel = help.New(reg, t)
 	m.marks = make(map[rune]string)
 	m.searchModel = search.New(t)
+	cmdTi := textinput.New()
+	cmdTi.Placeholder = "command…"
+	cmdTi.CharLimit = 256
+	m.cmdPromptInput = cmdTi
 
 	// Load jump store (ignore error — use empty store on failure).
 	store, _ := jump.LoadStore()
@@ -366,6 +371,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case actions.OpenShellMsg:
+		if m.activeP().Provider.Capabilities().IsRemote {
+			m.statusMsg = "Open shell not available on remote panes"
+			return m, nil
+		}
 		shell := os.Getenv("SHELL")
 		if shell == "" {
 			shell = "sh"
@@ -378,16 +387,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 
 	case actions.RunCommandMsg:
-		sel := m.activeP().Selected()
-		if sel == nil {
+		if m.activeP().Provider.Capabilities().IsRemote {
+			m.statusMsg = "Run command not available on remote panes"
 			return m, nil
 		}
 		m.cmdPromptOpen = true
-		m.cmdPromptBuf = ""
-		m.statusMsg = "! run: "
-		return m, nil
+		m.cmdPromptInput.SetValue("")
+		m.cmdPromptInput.Focus()
+		return m, textinput.Blink
 
 	case actions.QuickLookMsg:
+		if m.activeP().Provider.Capabilities().IsRemote {
+			m.statusMsg = "Quick Look not available on remote panes"
+			return m, nil
+		}
 		sel := m.activeP().Selected()
 		if sel == nil {
 			return m, nil
@@ -400,6 +413,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case actions.OpenWithMsg:
 		sel := m.activeP().Selected()
 		if sel == nil {
+			return m, nil
+		}
+		if sel.IsDir {
+			// Directories: use l to enter, ctrl+r to reveal in Finder.
+			m.statusMsg = "Use l to enter directories"
+			return m, nil
+		}
+		if m.activeP().Provider.Capabilities().IsRemote {
+			m.statusMsg = "Open with not available on remote panes"
 			return m, nil
 		}
 		var cmd *exec.Cmd
@@ -830,19 +852,17 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// If run-command prompt is open, accumulate input.
+	// If run-command prompt is open, route keys to the textinput.
 	if m.cmdPromptOpen {
 		switch msg.Type {
 		case tea.KeyEsc:
 			m.cmdPromptOpen = false
-			m.cmdPromptBuf = ""
-			m.statusMsg = "Cancelled"
+			m.cmdPromptInput.Blur()
 			return m, nil
 		case tea.KeyEnter:
-			cmdStr := strings.TrimSpace(m.cmdPromptBuf)
+			cmdStr := strings.TrimSpace(m.cmdPromptInput.Value())
 			m.cmdPromptOpen = false
-			m.cmdPromptBuf = ""
-			m.statusMsg = ""
+			m.cmdPromptInput.Blur()
 			if cmdStr == "" {
 				return m, nil
 			}
@@ -860,18 +880,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
 				return nil
 			})
-		case tea.KeyBackspace, tea.KeyDelete:
-			if len(m.cmdPromptBuf) > 0 {
-				m.cmdPromptBuf = m.cmdPromptBuf[:len(m.cmdPromptBuf)-1]
-				m.statusMsg = "! run: " + m.cmdPromptBuf
-			}
-			return m, nil
 		default:
-			if msg.Type == tea.KeyRunes {
-				m.cmdPromptBuf += string(msg.Runes)
-				m.statusMsg = "! run: " + m.cmdPromptBuf
-			}
-			return m, nil
+			var cmd tea.Cmd
+			m.cmdPromptInput, cmd = m.cmdPromptInput.Update(msg)
+			return m, cmd
 		}
 	}
 
@@ -1653,6 +1665,13 @@ func (m *Model) renderHeader() string {
 // renderStatusBar builds the status bar string.
 func (m *Model) renderStatusBar() string {
 	ap := m.activeP()
+
+	// Run-command prompt: replace status bar with a full-width textinput.
+	if m.cmdPromptOpen {
+		prompt := m.theme.StatusBarAccent.Render(" ! ")
+		input := m.theme.StatusBar.Width(m.width - lipgloss.Width(prompt)).Render(m.cmdPromptInput.View())
+		return lipgloss.JoinHorizontal(lipgloss.Top, prompt, input)
+	}
 
 	// If a transient message is set, show it full-width.
 	if m.statusMsg != "" {

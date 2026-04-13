@@ -42,10 +42,10 @@ Dual-pane TUI file manager. Local filesystem. SFTP remotes. Tailscale nodes. Arc
 - Loads asynchronously — the pane spinner tells you it's working
 
 **File operations**
-- `o` opens a file with the OS default application (`open` on macOS, `xdg-open` on Linux)
-- `!` prompts for a shell command; runs it with the selected file as the argument
+- `o` opens a file with the OS default application (`open` on macOS, `xdg-open` on Linux) — uses the system default, not Finder
+- `!` opens a command prompt in the footer; type a shell command and press Enter to run it against the selected file
 - `S` drops into an interactive shell in the current directory; the UI resumes on exit
-- `ctrl+space` opens macOS Quick Look on the selected file
+- `Q` opens macOS Quick Look on the selected file
 - `R` opens `$EDITOR` with all selected filenames listed — edit the names, save, quit; renames are applied automatically
 - `F4` opens the selected file in your configured editor
 
@@ -56,7 +56,7 @@ Dual-pane TUI file manager. Local filesystem. SFTP remotes. Tailscale nodes. Arc
 
 **Status bar**
 - Breadcrumb path with `›` separators, home-dir compressed to `~`
-- Centered git branch; remote pane badge (`● hostname`) on the right; permissions + size far right
+- Centered git branch; remote pane badge (`⇄ user@hostname`) on the right; permissions + size far right
 - Archive context shown inline: `~ › projects [archive.zip › src]`
 - Transient messages (copy confirmations, errors) override the bar full-width
 
@@ -73,6 +73,8 @@ Dual-pane TUI file manager. Local filesystem. SFTP remotes. Tailscale nodes. Arc
 - `c` opens the connect palette — parses `~/.ssh/config` automatically
 - Tailscale nodes appear in a second section, fetched live from the local socket
 - Connecting replaces the inactive pane with an SFTP session; all file operations work the same
+- Remote panes display `user@hostname:/path` in steel blue — visually distinct from local panes at all times
+- `ctrl+d` disconnects cleanly and reverts the pane to the local filesystem
 
 **Custom actions**
 - Any shell command is a first-class action
@@ -127,6 +129,7 @@ pelorus [path] [flags]
 
   -f, --config      Config file path (default: XDG config dir)
   -t, --theme       Theme name: pelorus · gruvbox · nord · light · dracula · catppuccin
+      --demo        Start with a sandboxed demo filesystem (for recordings/screenshots)
       --version     Print version and exit
 ```
 
@@ -162,16 +165,16 @@ Set `start_dir = "last"` in config to always reopen where you left off.
 | `space` | Toggle selection (multi-select) |
 | `C` / `F5` | Copy selected (or all marked) to other pane |
 | `M` / `F6` | Move selected (or all marked) to other pane |
-| `F8` | Move to trash (OS trash on macOS/Linux) |
+| `F8` / `delete` | Move to trash (OS trash on macOS/Linux) |
 | `d` / `⇧F8` | Permanent delete |
 | `r` | Rename |
 | `R` | Bulk rename in editor |
 | `n` / `⇧F7` | New file |
 | `N` / `F7` | New directory |
 | `F4` | Open in editor |
-| `!` | Run shell command on selected file |
 | `o` | Open with default application |
-| `ctrl+space` | Quick Look (macOS) |
+| `Q` | Quick Look (macOS) |
+| `!` | Run shell command on selected file |
 | `y` | Copy full path to clipboard |
 | `Y` | Copy filename to clipboard |
 | `ctrl+r` | Reveal in Finder (macOS) |
@@ -182,7 +185,7 @@ Set `start_dir = "last"` in config to always reopen where you left off.
 |-----|--------|
 | `p` | Toggle preview pane |
 | `]` / `[` | Scroll preview down / up |
-| `/` | Search within preview |
+| `/` | Search within preview (opens preview pane if needed) |
 | `.` | Toggle hidden files |
 | `J` | Job queue |
 | `<` / `>` | Shrink / grow left pane |
@@ -193,6 +196,7 @@ Set `start_dir = "last"` in config to always reopen where you left off.
 |-----|--------|
 | `ctrl+p` / `:` | Command palette |
 | `c` | Connect to SSH / Tailscale host |
+| `ctrl+d` | Disconnect remote pane, revert to local |
 | `S` | Drop into shell in current directory |
 | `B` | Bookmark current directory |
 | `?` | Keybinding reference |
