@@ -34,6 +34,10 @@ type Theme struct {
 	// The raw background color used for the header bar — used when
 	// concatenating sections without a wrapper Render call.
 	HeaderBg string
+
+	// Status bar accent styles.
+	StatusBarAccent lipgloss.Style // phosphor cyan for primary status bar text
+	StatusBarMuted  lipgloss.Style // teal dim for secondary status bar text
 }
 
 // Get returns the named theme, defaulting to pelorus.
@@ -155,6 +159,14 @@ func PelorusTheme() Theme {
 		HeaderHint: lipgloss.NewStyle().
 			Background(lipgloss.Color(hdrBg)).
 			Foreground(lipgloss.Color("#052424")),
+
+		StatusBarAccent: lipgloss.NewStyle().
+			Background(lipgloss.Color(colorStatus)).
+			Foreground(lipgloss.Color(colorAccent)),
+
+		StatusBarMuted: lipgloss.NewStyle().
+			Background(lipgloss.Color(colorStatus)).
+			Foreground(lipgloss.Color(colorAccentDim)),
 	}
 }
 
@@ -244,6 +256,14 @@ func GruvboxTheme() Theme {
 		HeaderHint: lipgloss.NewStyle().
 			Background(lipgloss.Color(hdrBg)).
 			Foreground(lipgloss.Color("#504945")),
+
+		StatusBarAccent: lipgloss.NewStyle().
+			Background(lipgloss.Color("#1d2021")).
+			Foreground(lipgloss.Color("#fabd2f")),
+
+		StatusBarMuted: lipgloss.NewStyle().
+			Background(lipgloss.Color("#1d2021")).
+			Foreground(lipgloss.Color("#a89984")),
 	}
 }
 
@@ -333,6 +353,14 @@ func NordTheme() Theme {
 		HeaderHint: lipgloss.NewStyle().
 			Background(lipgloss.Color(hdrBg)).
 			Foreground(lipgloss.Color("#434c5e")),
+
+		StatusBarAccent: lipgloss.NewStyle().
+			Background(lipgloss.Color("#242933")).
+			Foreground(lipgloss.Color("#88c0d0")),
+
+		StatusBarMuted: lipgloss.NewStyle().
+			Background(lipgloss.Color("#242933")).
+			Foreground(lipgloss.Color("#4c566a")),
 	}
 }
 
@@ -422,5 +450,13 @@ func LightTheme() Theme {
 		HeaderHint: lipgloss.NewStyle().
 			Background(lipgloss.Color(hdrBg)).
 			Foreground(lipgloss.Color("#052424")),
+
+		StatusBarAccent: lipgloss.NewStyle().
+			Background(lipgloss.Color("#e0e0e0")).
+			Foreground(lipgloss.Color("#0e7c7b")),
+
+		StatusBarMuted: lipgloss.NewStyle().
+			Background(lipgloss.Color("#e0e0e0")).
+			Foreground(lipgloss.Color("#777777")),
 	}
 }

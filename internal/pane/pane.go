@@ -54,6 +54,12 @@ type Model struct {
 	// Multi-select: set of selected paths.
 	MultiSel map[string]bool
 
+	// SortMode controls entry ordering.
+	SortMode nav.SortMode
+
+	// GitStatus maps absolute paths to single-char git status glyphs.
+	GitStatus map[string]string
+
 	// Fuzzy filter state
 	FilterStr string
 
@@ -87,7 +93,7 @@ func New(path string, p provider.Provider, t *theme.Theme, showHidden bool) *Mod
 
 // reload refreshes entries from the provider.
 func (m *Model) reload() {
-	entries, err := nav.ReadDir(m.Path, m.Provider, m.ShowHidden)
+	entries, err := nav.ReadDir(m.Path, m.Provider, m.ShowHidden, m.SortMode)
 	if err != nil {
 		m.Entries = nil
 	} else {
@@ -96,6 +102,12 @@ func (m *Model) reload() {
 	m.FilterStr = ""
 	m.Filtered = m.Entries
 	m.clampCursor()
+}
+
+// CycleSort advances the sort mode and reloads the pane.
+func (m *Model) CycleSort() {
+	m.SortMode = (m.SortMode + 1) % 4
+	m.reload()
 }
 
 // Selected returns the currently highlighted FileInfo, or nil.
@@ -508,6 +520,30 @@ func (m *Model) ClearSelection() {
 	m.MultiSel = nil
 }
 
+// HasArchive reports whether the pane is currently inside an archive.
+func (m *Model) HasArchive() bool {
+	return len(m.archiveStack) > 0
+}
+
+// ArchiveLabel returns a display label for the current archive context,
+// e.g. "archive.zip › sub/dir". Returns "" if not inside an archive.
+func (m *Model) ArchiveLabel() string {
+	if len(m.archiveStack) == 0 {
+		return ""
+	}
+	ap, ok := m.Provider.(*archive.Provider)
+	if !ok {
+		return ""
+	}
+	archPath := ap.ArchivePath()
+	archName := filepath.Base(archPath)
+	rel, err := filepath.Rel(archPath, m.Path)
+	if err != nil || rel == "." {
+		return archName
+	}
+	return archName + " › " + rel
+}
+
 // ApplyFilterPublic is an exported wrapper around applyFilter for use by app.
 func (m *Model) ApplyFilterPublic() {
 	m.applyFilter()
@@ -532,9 +568,23 @@ func (m *Model) View() string {
 
 	// Path header line — accent color when active, dim when inactive.
 	pathDisplay := m.Path
-	if len(pathDisplay) > innerW {
-		pathDisplay = "…" + pathDisplay[len(pathDisplay)-innerW+1:]
+
+	// Append sort indicator when not default.
+	sortSuffix := ""
+	switch m.SortMode {
+	case nav.SortSize:
+		sortSuffix = " [size]"
+	case nav.SortDate:
+		sortSuffix = " [date]"
+	case nav.SortExt:
+		sortSuffix = " [ext]"
 	}
+
+	full := pathDisplay + sortSuffix
+	if len(full) > innerW {
+		full = "…" + full[len(full)-innerW+1:]
+	}
+	pathDisplay = full
 	var pathStyle lipgloss.Style
 	if m.IsActive {
 		pathStyle = m.Theme.PathHeader.
@@ -626,6 +676,7 @@ func (m *Model) View() string {
 func (m *Model) renderEntry(fi fileinfo.FileInfo, selected bool, width int) string {
 	icon := fileinfo.Icon(fi)
 	isMarked := m.MultiSel[fi.Path]
+	gitGlyph, hasGit := m.GitStatus[fi.Path]
 
 	// Prefix marked items with a visible indicator.
 	marker := "  "
@@ -638,7 +689,12 @@ func (m *Model) renderEntry(fi fileinfo.FileInfo, selected bool, width int) stri
 		name = fi.Name + " -> " + fi.SymlinkTarget
 	}
 
-	maxName := width - 5 // marker(2) + icon(1) + space(1) + name
+	// Reserve space: marker(2) + icon(1) + space(1) + name + optional git glyph(2)
+	gitReserve := 0
+	if hasGit {
+		gitReserve = 2
+	}
+	maxName := width - 5 - gitReserve
 	if maxName < 1 {
 		maxName = 1
 	}
@@ -646,17 +702,15 @@ func (m *Model) renderEntry(fi fileinfo.FileInfo, selected bool, width int) stri
 		name = name[:maxName-1] + "…"
 	}
 
-	line := fmt.Sprintf("%s%s %s", marker, icon, name)
-	// Pad to full width.
-	if len(line) < width {
-		line += strings.Repeat(" ", width-len(line))
+	baseLine := fmt.Sprintf("%s%s %s", marker, icon, name)
+	// Pad base to width-gitReserve.
+	baseWidth := width - gitReserve
+	for len(baseLine) < baseWidth {
+		baseLine += " "
 	}
 
 	var style lipgloss.Style
-	if selected && isMarked {
-		// Cursor on a marked item — show cursor style with marker color.
-		style = m.Theme.Cursor
-	} else if selected {
+	if selected {
 		style = m.Theme.Cursor
 	} else if isMarked {
 		style = m.Theme.MarkedEntry
@@ -668,5 +722,23 @@ func (m *Model) renderEntry(fi fileinfo.FileInfo, selected bool, width int) stri
 		style = m.Theme.FileName
 	}
 
-	return style.Render(line)
+	rendered := style.Render(baseLine)
+
+	if hasGit {
+		var glyphColor lipgloss.Color
+		switch gitGlyph {
+		case "M":
+			glyphColor = "#ffcc00"
+		case "A":
+			glyphColor = "#00cc66"
+		case "D":
+			glyphColor = "#ff5555"
+		default:
+			glyphColor = "#4a6070"
+		}
+		glyphRender := lipgloss.NewStyle().Foreground(glyphColor).Render(" " + gitGlyph)
+		rendered = rendered + glyphRender
+	}
+
+	return rendered
 }

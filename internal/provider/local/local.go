@@ -27,7 +27,7 @@ func (p *Provider) Capabilities() provider.Caps {
 		CanSetPermissions: true,
 		CanSymlink:        true,
 		CanPreview:        true,
-		CanTrash:          false,
+		CanTrash:          true,
 		IsRemote:          false,
 		SupportsArchive:   false,
 	}

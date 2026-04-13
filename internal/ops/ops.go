@@ -2,8 +2,12 @@ package ops
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,6 +24,7 @@ const (
 	KindCopy   JobKind = "Copy"
 	KindMove   JobKind = "Move"
 	KindDelete JobKind = "Delete"
+	KindTrash  JobKind = "Trash"
 )
 
 // JobStatus describes the lifecycle state of a job.
@@ -169,6 +174,8 @@ func runJob(job *Job, srcProv, dstProv provider.Provider) error {
 		return doMove(job, srcProv, dstProv)
 	case KindDelete:
 		return doDelete(job, srcProv)
+	case KindTrash:
+		return doTrash(job)
 	}
 	return errors.New("unknown job kind")
 }
@@ -217,6 +224,86 @@ func doDelete(job *Job, srcProv provider.Provider) error {
 	job.BytesTotal = 1
 	job.Progress = 1.0
 	return err
+}
+
+func doTrash(job *Job) error {
+	src := job.Src
+	switch runtime.GOOS {
+	case "darwin":
+		// Use AppleScript to move to Finder's trash (preserves undo in Finder).
+		script := fmt.Sprintf(`tell application "Finder" to delete POSIX file %q`, src)
+		cmd := exec.Command("osascript", "-e", script)
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("trash (osascript): %w", err)
+		}
+	case "linux":
+		// XDG Trash spec: ~/.local/share/Trash/files + .../info
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("trash: cannot find home dir: %w", err)
+		}
+		trashFiles := filepath.Join(home, ".local", "share", "Trash", "files")
+		trashInfo := filepath.Join(home, ".local", "share", "Trash", "info")
+		if err := os.MkdirAll(trashFiles, 0o755); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(trashInfo, 0o755); err != nil {
+			return err
+		}
+		base := filepath.Base(src)
+		// Avoid name collisions in trash.
+		dest := filepath.Join(trashFiles, base)
+		for i := 1; ; i++ {
+			if _, err := os.Stat(dest); os.IsNotExist(err) {
+				break
+			}
+			ext := filepath.Ext(base)
+			stem := base[:len(base)-len(ext)]
+			dest = filepath.Join(trashFiles, fmt.Sprintf("%s.%d%s", stem, i, ext))
+		}
+		// Rename (fast path); fall back to copy+delete on EXDEV.
+		if err := os.Rename(src, dest); err != nil {
+			// Cross-device: copy then delete.
+			if copyErr := copyFileSimple(src, dest); copyErr != nil {
+				return copyErr
+			}
+			if delErr := os.RemoveAll(src); delErr != nil {
+				return delErr
+			}
+		}
+		// Write .trashinfo file.
+		infoContent := fmt.Sprintf("[Trash Info]\nPath=%s\nDeletionDate=%s\n",
+			src, time.Now().Format("2006-01-02T15:04:05"))
+		infoFile := filepath.Join(trashInfo, filepath.Base(dest)+".trashinfo")
+		_ = os.WriteFile(infoFile, []byte(infoContent), 0o644)
+	default:
+		// Windows or unknown: permanent delete with warning.
+		if err := os.RemoveAll(src); err != nil {
+			return fmt.Errorf("permanent delete (trash unavailable on %s): %w", runtime.GOOS, err)
+		}
+	}
+	job.BytesDone = 1
+	job.BytesTotal = 1
+	job.Progress = 1.0
+	return nil
+}
+
+// copyFileSimple is a minimal file copier used as EXDEV fallback for trash.
+func copyFileSimple(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
 }
 
 func copyWithProgress(job *Job, src io.Reader, dst io.Writer, total int64) error {

@@ -67,6 +67,21 @@ type OpenHelpMsg struct{}
 // ToggleSelectMsg tells the app to mark/unmark the cursor item for batch ops.
 type ToggleSelectMsg struct{}
 
+// OpenEditorMsg tells the app to open the selected file in the configured editor.
+type OpenEditorMsg struct{}
+
+// TrashMsg tells the app to move selected item(s) to the OS trash.
+type TrashMsg struct{}
+
+// CycleSortMsg tells the app to advance the sort mode on the active pane.
+type CycleSortMsg struct{}
+
+// CopyPathMsg tells the app to copy the selected item's full path to clipboard.
+type CopyPathMsg struct{}
+
+// CopyFilenameMsg tells the app to copy the selected item's filename to clipboard.
+type CopyFilenameMsg struct{}
+
 // RegisterBuiltins registers the standard set of built-in actions.
 func RegisterBuiltins(r *Registry) {
 	builtins := []Action{
@@ -321,6 +336,116 @@ func RegisterBuiltins(r *Registry) {
 			Keybinding:  " ",
 			Handler: func(_ AppState) tea.Cmd {
 				return func() tea.Msg { return ToggleSelectMsg{} }
+			},
+		},
+		{
+			ID:          "file.open-editor",
+			Name:        "Open in Editor",
+			Description: "Open selected file in the configured editor",
+			Category:    "File",
+			Context:     CtxFileSelected,
+			Keybinding:  "f4",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return OpenEditorMsg{} }
+			},
+		},
+		{
+			ID:          "file.copy-f5",
+			Name:        "Copy (F5)",
+			Description: "Copy selected item to the other pane",
+			Category:    "File",
+			Context:     CtxFileSelected,
+			Keybinding:  "f5",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return CopySelectedMsg{} }
+			},
+		},
+		{
+			ID:          "file.move-f6",
+			Name:        "Move (F6)",
+			Description: "Move selected item to the other pane",
+			Category:    "File",
+			Context:     CtxFileSelected,
+			Keybinding:  "f6",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return MoveSelectedMsg{} }
+			},
+		},
+		{
+			ID:          "file.new-dir-f7",
+			Name:        "New Directory (F7)",
+			Description: "Create a new directory in the current pane",
+			Category:    "File",
+			Context:     CtxAlways,
+			Keybinding:  "f7",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return NewDirMsg{} }
+			},
+		},
+		{
+			ID:          "file.new-file-sf7",
+			Name:        "New File (⇧F7)",
+			Description: "Create a new file in the current pane",
+			Category:    "File",
+			Context:     CtxAlways,
+			Keybinding:  "shift+f7",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return NewFileMsg{} }
+			},
+		},
+		{
+			ID:          "file.trash",
+			Name:        "Move to Trash (F8)",
+			Description: "Move selected item(s) to the OS trash",
+			Category:    "File",
+			Context:     CtxFileSelected,
+			Keybinding:  "f8",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return TrashMsg{} }
+			},
+		},
+		{
+			ID:          "file.delete-sf8",
+			Name:        "Delete Permanently (⇧F8)",
+			Description: "Permanently delete selected item(s)",
+			Category:    "File",
+			Context:     CtxFileSelected,
+			Keybinding:  "shift+f8",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return DeleteSelectedMsg{} }
+			},
+		},
+		{
+			ID:          "file.sort",
+			Name:        "Cycle Sort",
+			Description: "Cycle sort mode: name → size → date → extension",
+			Category:    "View",
+			Context:     CtxAlways,
+			Keybinding:  "s",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return CycleSortMsg{} }
+			},
+		},
+		{
+			ID:          "file.copy-path",
+			Name:        "Copy Path",
+			Description: "Copy full path of selected item to clipboard",
+			Category:    "File",
+			Context:     CtxAlways,
+			Keybinding:  "y",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return CopyPathMsg{} }
+			},
+		},
+		{
+			ID:          "file.copy-name",
+			Name:        "Copy Filename",
+			Description: "Copy filename of selected item to clipboard",
+			Category:    "File",
+			Context:     CtxAlways,
+			Keybinding:  "Y",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return CopyFilenameMsg{} }
 			},
 		},
 	}

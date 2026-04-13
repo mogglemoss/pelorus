@@ -14,7 +14,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/atotto/clipboard"
+
 	"github.com/mogglemoss/pelorus/internal/actions"
+	"github.com/mogglemoss/pelorus/internal/gitstatus"
 	"github.com/mogglemoss/pelorus/internal/config"
 	"github.com/mogglemoss/pelorus/internal/connect"
 	"github.com/mogglemoss/pelorus/internal/help"
@@ -24,7 +27,6 @@ import (
 	"github.com/mogglemoss/pelorus/internal/pane"
 	"github.com/mogglemoss/pelorus/internal/preview"
 	"github.com/mogglemoss/pelorus/internal/provider"
-	"github.com/mogglemoss/pelorus/internal/provider/archive"
 	sftpprov "github.com/mogglemoss/pelorus/internal/provider/sftp"
 	"github.com/mogglemoss/pelorus/internal/theme"
 	"github.com/mogglemoss/pelorus/pkg/fileinfo"
@@ -73,6 +75,7 @@ type Model struct {
 	height int
 
 	statusMsg string // transient message shown in status bar
+	gitBranch string // current git branch for active pane's repo
 }
 
 // New creates the root app model.
@@ -139,7 +142,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.helpModel.Width = msg.Width
 		m.helpModel.Height = msg.Height
-		return m, m.updatePreview()
+		return m, tea.Batch(m.updatePreview(), m.updateGitStatus())
 
 	// --- Error display ---
 	case pane.ErrMsg:
@@ -176,6 +179,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.jumpOpen = false
 		return m, nil
 
+	// --- Git status messages ---
+	case gitstatus.GitStatusMsg:
+		m.gitBranch = msg.Branch
+		for _, p := range m.panes {
+			p.GitStatus = msg.Status
+		}
+		return m, nil
+
 	// --- Preview messages ---
 	case preview.ContentReadyMsg:
 		m.previewModel.SetContent(msg)
@@ -210,8 +221,41 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case actions.ToggleSelectMsg:
 		ap := m.activeP()
 		ap.ToggleSelection()
-		ap.CursorDown()
 		return m, m.updatePreview()
+
+	case actions.OpenEditorMsg:
+		sel := m.activeP().Selected()
+		if sel != nil && !sel.IsDir {
+			return m, m.openInEditor(sel.Path)
+		}
+		return m, nil
+
+	case actions.TrashMsg:
+		return m, m.enqueueTrash()
+
+	case actions.CycleSortMsg:
+		m.activeP().CycleSort()
+		return m, m.updatePreview()
+
+	case actions.CopyPathMsg:
+		if sel := m.activeP().Selected(); sel != nil {
+			if err := clipboard.WriteAll(sel.Path); err != nil {
+				m.statusMsg = "Clipboard unavailable"
+			} else {
+				m.statusMsg = "Copied: " + sel.Path
+			}
+		}
+		return m, nil
+
+	case actions.CopyFilenameMsg:
+		if sel := m.activeP().Selected(); sel != nil {
+			if err := clipboard.WriteAll(sel.Name); err != nil {
+				m.statusMsg = "Clipboard unavailable"
+			} else {
+				m.statusMsg = "Copied: " + sel.Name
+			}
+		}
+		return m, nil
 
 	case actions.DeleteSelectedMsg:
 		ap := m.activeP()
@@ -562,10 +606,11 @@ func (m *Model) handleNav(dir string) tea.Cmd {
 			_ = m.store.Save()
 		}
 		previewCmd := m.updatePreview()
+		gitCmd := m.updateGitStatus()
 		if enterCmd != nil {
-			return tea.Batch(enterCmd, previewCmd)
+			return tea.Batch(enterCmd, previewCmd, gitCmd)
 		}
-		return previewCmd
+		return tea.Batch(previewCmd, gitCmd)
 	case "parent":
 		prevPath := ap.Path
 		ap.GoParent()
@@ -574,7 +619,7 @@ func (m *Model) handleNav(dir string) tea.Cmd {
 			_ = m.store.Save()
 		}
 	}
-	return m.updatePreview()
+	return tea.Batch(m.updatePreview(), m.updateGitStatus())
 }
 
 // updatePreview triggers async content loading for the currently selected file.
@@ -587,6 +632,11 @@ func (m *Model) updatePreview() tea.Cmd {
 		return nil
 	}
 	return m.previewModel.SetFile(sel)
+}
+
+// updateGitStatus triggers async git status fetch for the active pane's directory.
+func (m *Model) updateGitStatus() tea.Cmd {
+	return gitstatus.GitStatusCmd(m.activeP().Path)
 }
 
 func (m *Model) switchPane() {
@@ -676,6 +726,33 @@ func (m *Model) enqueueDelete(path string, prov provider.Provider) tea.Cmd {
 		ops.StartJob(job, prov, prov),
 		m.startProgressTicker(),
 	)
+}
+
+func (m *Model) enqueueTrash() tea.Cmd {
+	ap := m.activeP()
+	if !ap.Provider.Capabilities().CanTrash {
+		m.statusMsg = "Trash not supported on this provider"
+		return nil
+	}
+	entries := ap.SelectedEntries()
+	if len(entries) == 0 {
+		return nil
+	}
+	var cmds []tea.Cmd
+	for _, sel := range entries {
+		job := m.queue.Add(ops.KindTrash, sel.Path, "")
+		job.Status = ops.StatusRunning
+		job.StartTime = time.Now()
+		cmds = append(cmds, ops.StartJob(job, ap.Provider, ap.Provider))
+	}
+	if len(entries) == 1 {
+		m.statusMsg = fmt.Sprintf("Trashing %q…", entries[0].Name)
+	} else {
+		m.statusMsg = fmt.Sprintf("Trashing %d items…", len(entries))
+	}
+	ap.ClearSelection()
+	cmds = append(cmds, m.startProgressTicker())
+	return tea.Batch(cmds...)
 }
 
 func (m *Model) startProgressTicker() tea.Cmd {
@@ -947,41 +1024,112 @@ func (m *Model) renderHeader() string {
 // renderStatusBar builds the status bar string.
 func (m *Model) renderStatusBar() string {
 	ap := m.activeP()
-	path := ap.Path
-	count := len(ap.Filtered)
 
-	// Show a provider label when the active pane is using a special provider.
-	var providerLabel string
-	if archProv, ok := ap.Provider.(*archive.Provider); ok {
-		providerLabel = "[" + archProv.KindLabel() + "] "
-	} else if sftpP, ok := ap.Provider.(*sftpprov.Provider); ok {
-		providerLabel = "[" + sftpP.String() + "] "
-	}
-
-	info := fmt.Sprintf(" %s%s | %d items", providerLabel, path, count)
-
-	sel := ap.Selected()
-	if sel != nil {
-		info += fmt.Sprintf(" | %s | %s",
-			sel.Mode.String(),
-			fileinfo.HumanSize(sel.Size),
-		)
-	}
-
-	// Show multi-select count.
-	if n := len(ap.MultiSel); n > 0 {
-		info += fmt.Sprintf(" | %d selected", n)
-	}
-
+	// If a transient message is set, show it full-width.
 	if m.statusMsg != "" {
-		info += " | " + m.statusMsg
+		return m.theme.StatusBar.Width(m.width).Render(" " + m.statusMsg)
 	}
 
+	// --- Left: breadcrumb path ---
+	home, _ := os.UserHomeDir()
+	path := ap.Path
+	if home != "" && strings.HasPrefix(path, home) {
+		path = "~" + path[len(home):]
+	}
+	// Build breadcrumb by replacing separators with › .
+	breadcrumb := strings.ReplaceAll(path, string(filepath.Separator), " › ")
+	if breadcrumb == "" {
+		breadcrumb = "/"
+	}
+	// Archive suffix.
+	if ap.HasArchive() {
+		if label := ap.ArchiveLabel(); label != "" {
+			breadcrumb += "  [" + label + "]"
+		}
+	}
+	// Filter indicator.
 	if ap.FilterStr != "" {
-		info += fmt.Sprintf(" | filter: %q", ap.FilterStr)
+		breadcrumb += fmt.Sprintf("  /%s", ap.FilterStr)
+	}
+	// Multi-select count.
+	selCount := len(ap.MultiSel)
+
+	// --- Center: git branch ---
+	center := ""
+	if m.gitBranch != "" {
+		center = "⎇ " + m.gitBranch
 	}
 
-	return m.theme.StatusBar.Width(m.width).Render(info)
+	// --- Right: remote badge ---
+	right := ""
+	if sftpP, ok := ap.Provider.(*sftpprov.Provider); ok {
+		right = "● " + sftpP.String()
+	}
+
+	// --- Far-right: perms + size + sel count ---
+	farRight := ""
+	if sel := ap.Selected(); sel != nil {
+		farRight = sel.Mode.String() + "  " + fileinfo.HumanSize(sel.Size)
+	}
+	if selCount > 0 {
+		farRight = fmt.Sprintf("%d selected  ", selCount) + farRight
+	}
+
+	// Layout arithmetic.
+	centerW := lipgloss.Width(center)
+	rightW := lipgloss.Width(right)
+	farRightW := lipgloss.Width(farRight)
+
+	// Add padding around center and right.
+	if centerW > 0 {
+		centerW += 4 // 2 each side
+	}
+	if rightW > 0 {
+		rightW += 4
+	}
+	if farRightW > 0 {
+		farRightW += 2
+	}
+
+	leftW := m.width - centerW - rightW - farRightW
+	if leftW < 4 {
+		leftW = 4
+	}
+
+	bg := m.theme.StatusBar.GetBackground()
+	base := lipgloss.NewStyle().Background(bg)
+	accentStyle := m.theme.StatusBarAccent
+	mutedStyle := m.theme.StatusBarMuted
+
+	// Left: accent color breadcrumb.
+	leftContent := " " + breadcrumb
+	leftSeg := accentStyle.Width(leftW).Render(leftContent)
+
+	// Center: muted branch indicator.
+	var centerSeg string
+	if centerW > 0 {
+		centerSeg = mutedStyle.Width(centerW).Align(lipgloss.Center).Render(center)
+	} else {
+		centerSeg = base.Width(centerW).Render("")
+	}
+
+	// Right: remote badge in accent.
+	var rightSeg string
+	if rightW > 0 {
+		rightSeg = accentStyle.Width(rightW).Align(lipgloss.Right).Render(right + "  ")
+	} else {
+		rightSeg = base.Width(rightW).Render("")
+	}
+
+	// Far-right: muted perms+size.
+	var farRightSeg string
+	if farRightW > 0 {
+		farRightSeg = mutedStyle.Width(farRightW).Align(lipgloss.Right).Render(farRight + " ")
+	} else {
+		farRightSeg = base.Width(farRightW).Render("")
+	}
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftSeg, centerSeg, rightSeg, farRightSeg)
 }
 
 // overlayCenter centers an overlay on top of the base view using lipgloss.Place.
