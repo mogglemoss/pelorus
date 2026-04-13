@@ -185,10 +185,9 @@ func TestStripANSIBg(t *testing.T) {
 	}
 }
 
-// TestFixResets verifies that bare SGR resets are followed by a background restore.
-func TestFixResets(t *testing.T) {
-	bg := "#1a1815"
-	restore := "\x1b[48;2;26;24;21m" // #1a1815 decoded
+// TestSoftenResets verifies that full SGR resets are converted to fg-only resets.
+func TestSoftenResets(t *testing.T) {
+	fgReset := "\x1b[39m"
 
 	tests := []struct {
 		name  string
@@ -196,29 +195,24 @@ func TestFixResets(t *testing.T) {
 		want  string
 	}{
 		{
-			name:  "bare 0m reset gets restore appended",
+			name:  "bare 0m becomes fg-only reset",
 			input: "text\x1b[0mmore",
-			want:  "text\x1b[0m" + restore + "more",
+			want:  "text" + fgReset + "more",
 		},
 		{
-			name:  "bare m reset gets restore appended",
+			name:  "bare m becomes fg-only reset",
 			input: "text\x1b[mmore",
-			want:  "text\x1b[m" + restore + "more",
+			want:  "text" + fgReset + "more",
 		},
 		{
-			name:  "multiple resets all get restore",
+			name:  "multiple resets all converted",
 			input: "\x1b[0mA\x1b[0mB",
-			want:  "\x1b[0m" + restore + "A\x1b[0m" + restore + "B",
+			want:  fgReset + "A" + fgReset + "B",
 		},
 		{
 			name:  "no resets unchanged",
 			input: "\x1b[38;2;100;200;50mtext",
 			want:  "\x1b[38;2;100;200;50mtext",
-		},
-		{
-			name:  "invalid bg color returns unchanged",
-			input: "text\x1b[0mmore",
-			// bg will be "" when passed to fixResets — function should return unchanged
 		},
 		{
 			name:  "empty input unchanged",
@@ -229,14 +223,9 @@ func TestFixResets(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			useBg := bg
-			if tc.name == "invalid bg color returns unchanged" {
-				useBg = ""
-				tc.want = tc.input // unchanged
-			}
-			got := fixResets(tc.input, useBg)
+			got := softenResets(tc.input)
 			if got != tc.want {
-				t.Errorf("fixResets mismatch\n  input: %q\n  want:  %q\n  got:   %q", tc.input, tc.want, got)
+				t.Errorf("softenResets mismatch\n  input: %q\n  want:  %q\n  got:   %q", tc.input, tc.want, got)
 			}
 		})
 	}

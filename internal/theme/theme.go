@@ -36,10 +36,6 @@ type Theme struct {
 	// concatenating sections without a wrapper Render call.
 	HeaderBg string
 
-	// PreviewBg is the raw hex background color for the preview content area
-	// (e.g. "#1a1815"). Used directly without lipgloss type assertions.
-	PreviewBg string
-
 	// Status bar accent styles.
 	StatusBarAccent lipgloss.Style // phosphor cyan for primary status bar text
 	StatusBarMuted  lipgloss.Style // teal dim for secondary status bar text
@@ -124,7 +120,7 @@ func PelorusTheme() Theme {
 	hdrBg := colorPrimary
 	return Theme{
 		HeaderBg:  hdrBg,
-		PreviewBg: colorBgPane,
+
 
 		ActiveBorder: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -252,7 +248,7 @@ func GruvboxTheme() Theme {
 	paneBg := "#282828"
 	return Theme{
 		HeaderBg:  hdrBg,
-		PreviewBg: paneBg,
+
 
 		ActiveBorder: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -380,7 +376,7 @@ func NordTheme() Theme {
 	paneBg := "#2e3440"
 	return Theme{
 		HeaderBg:  hdrBg,
-		PreviewBg: paneBg,
+
 
 		ActiveBorder: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -508,7 +504,7 @@ func LightTheme() Theme {
 	paneBg := "#f5f5f5"
 	return Theme{
 		HeaderBg:  hdrBg,
-		PreviewBg: paneBg,
+
 
 		ActiveBorder: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -638,7 +634,7 @@ func DraculaTheme() Theme {
 	paletteBg := "#21222C"
 	return Theme{
 		HeaderBg:  hdrBg,
-		PreviewBg: paneBg,
+
 
 		ActiveBorder: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -768,7 +764,7 @@ func CatppuccinTheme() Theme {
 	paletteBg := "#181825" // mantle
 	return Theme{
 		HeaderBg:  hdrBg,
-		PreviewBg: paneBg,
+
 
 		ActiveBorder: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -912,7 +908,7 @@ func HaruspexTheme() Theme {
 	paletteBg := hxSurface
 	return Theme{
 		HeaderBg:  hdrBg,
-		PreviewBg: paneBg,
+
 
 		ActiveBorder: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).

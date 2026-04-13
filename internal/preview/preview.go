@@ -2,7 +2,6 @@ package preview
 
 import (
 	"bytes"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -49,8 +48,6 @@ type Model struct {
 
 	vp      viewport.Model
 	spinner spinner.Model
-
-	rawIsImage bool // whether current content is pixel data (chafa)
 
 	// Search state
 	searchOpen    bool
@@ -115,26 +112,13 @@ func (m *Model) SetContent(msg ContentReadyMsg) {
 	m.loading = false
 	m.err = msg.Err
 
-	m.rawIsImage = msg.IsImage
-
 	content := msg.Content
 	if msg.Err == nil && content != "" && !msg.IsImage {
-		// Image content (chafa output) must not be post-processed: pixel
-		// encoding relies on background colors that stripANSIBg would remove.
-		bg := m.Theme.PreviewBg
+		// Strip any explicit background codes from syntax-highlighted content
+		// so it inherits the pane background, then convert full SGR resets to
+		// foreground-only resets so the background is never cleared.
 		content = stripANSIBg(content)
-		if bg != "" {
-			content = fixResets(content, bg)
-		}
-	}
-
-	// Image content must not be wrapped in a background style — it corrupts
-	// sixel/kitty sequences and breaks terminal layout. Text content gets the
-	// theme background so cells after SGR resets show the correct color.
-	if msg.IsImage {
-		m.vp.Style = lipgloss.Style{}
-	} else if m.Theme != nil && m.Theme.PreviewBg != "" {
-		m.vp.Style = lipgloss.NewStyle().Background(lipgloss.Color(m.Theme.PreviewBg))
+		content = softenResets(content)
 	}
 
 	m.rawContent = content
@@ -167,13 +151,6 @@ func (m *Model) SetViewportSize(w, h int) {
 	}
 	m.vp.Width = w
 	m.vp.Height = h
-	// Keep the viewport background in sync with content type. Image content
-	// (sixel/kitty) must have no style wrapper; text content gets the theme bg.
-	if !m.rawIsImage && m.Theme != nil && m.Theme.PreviewBg != "" {
-		m.vp.Style = lipgloss.NewStyle().Background(lipgloss.Color(m.Theme.PreviewBg))
-	} else if m.rawIsImage {
-		m.vp.Style = lipgloss.Style{}
-	}
 }
 
 // OpenSearch opens the inline search bar.
@@ -324,24 +301,16 @@ func stripANSI(s string) string {
 	return ansiEscape.ReplaceAllString(s, "")
 }
 
-// fixResets replaces every bare SGR reset (\x1b[0m or \x1b[m) with a reset
-// followed by an immediate restore of the given background color. This prevents
-// inline resets from snapping the background to the terminal default between
-// syntax-highlighted tokens.
-//
-// hexBg must be a 6-digit hex color with leading "#", e.g. "#1a1815".
-// If parsing fails the string is returned unchanged.
-func fixResets(s, hexBg string) string {
-	if len(hexBg) != 7 || hexBg[0] != '#' {
-		return s
-	}
-	raw, err := hex.DecodeString(hexBg[1:])
-	if err != nil || len(raw) != 3 {
-		return s
-	}
-	restore := fmt.Sprintf("\x1b[48;2;%d;%d;%dm", raw[0], raw[1], raw[2])
-	s = strings.ReplaceAll(s, "\x1b[0m", "\x1b[0m"+restore)
-	s = strings.ReplaceAll(s, "\x1b[m", "\x1b[m"+restore)
+// softenResets replaces full SGR resets (\x1b[0m and \x1b[m) with a
+// foreground-only reset (\x1b[39m). This preserves the current background
+// color, which is set by the enclosing lipgloss container (the preview pane
+// border). Without this, every \x1b[0m between Chroma tokens would snap the
+// background to the terminal default (black), and the viewport's internal
+// lipgloss padding would compound the problem by adding its own resets that
+// we can't post-process.
+func softenResets(s string) string {
+	s = strings.ReplaceAll(s, "\x1b[0m", "\x1b[39m")
+	s = strings.ReplaceAll(s, "\x1b[m", "\x1b[39m")
 	return s
 }
 
