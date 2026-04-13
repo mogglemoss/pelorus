@@ -1182,8 +1182,8 @@ func (m *Model) View() string {
 }
 
 // renderHeader builds the branded header bar (1 row).
-// Single lipgloss.Style applied to a plain fmt.Sprintf string — the most
-// reliable approach for guaranteed background fill across all terminals.
+// Left: branding. Right: active pane indicator + key hints.
+// Path is not shown here — the status bar breadcrumb is the canonical location.
 func (m *Model) renderHeader() string {
 	paneLabel := "⬡ left"
 	if m.activePane == 1 {
@@ -1193,29 +1193,18 @@ func (m *Model) renderHeader() string {
 	left := "  PELORUS"
 	right := "   " + paneLabel + "   ctrl+p palette   g jump   c connect  "
 
-	// Fit the active path into the center gap.
-	path := m.activeP().Path
-	used := len(left) + len(right) // ascii-safe: no emoji in left/right
-	centerW := m.width - used
-	if centerW < 2 {
-		centerW = 2
+	// Fill the gap between left and right with spaces.
+	gap := m.width - len(left) - len(right)
+	if gap < 0 {
+		gap = 0
 	}
-	runes := []rune(path)
-	maxR := centerW - 2
-	if maxR < 1 {
-		maxR = 1
-	}
-	if len(runes) > maxR {
-		path = "…" + string(runes[len(runes)-maxR:])
-	}
-	center := fmt.Sprintf("  %-*s", centerW-2, path)
 
 	return lipgloss.NewStyle().
 		Background(lipgloss.Color("#0e7c7b")).
 		Foreground(lipgloss.Color("#caf0e4")).
 		Bold(true).
 		Width(m.width).
-		Render(left + center + right)
+		Render(left + strings.Repeat(" ", gap) + right)
 }
 
 // renderStatusBar builds the status bar string.
