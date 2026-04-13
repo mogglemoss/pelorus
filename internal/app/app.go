@@ -30,6 +30,7 @@ import (
 	"github.com/mogglemoss/pelorus/internal/pane"
 	"github.com/mogglemoss/pelorus/internal/preview"
 	"github.com/mogglemoss/pelorus/internal/provider"
+	localprov "github.com/mogglemoss/pelorus/internal/provider/local"
 	sftpprov "github.com/mogglemoss/pelorus/internal/provider/sftp"
 	"github.com/mogglemoss/pelorus/internal/search"
 	"github.com/mogglemoss/pelorus/internal/theme"
@@ -665,6 +666,39 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateWatchers()
 		m.statusMsg = fmt.Sprintf("Connected to %s", msg.alias)
 		return m, nil
+
+	case actions.DisconnectMsg:
+		ap := m.activeP()
+		if !ap.Provider.Capabilities().IsRemote {
+			m.statusMsg = "Active pane is not a remote session"
+			return m, nil
+		}
+		// Find and close the SFTP provider.
+		label := ap.Provider.String()
+		for alias, prov := range m.sftpProviders {
+			if prov == ap.Provider {
+				prov.Close()
+				delete(m.sftpProviders, alias)
+				break
+			}
+		}
+		// Revert to local provider navigated to home dir.
+		home, err := os.UserHomeDir()
+		if err != nil {
+			home = "/"
+		}
+		localProv := m.panes[1-m.activePane].Provider // borrow local prov from the other pane if it's local
+		if localProv.Capabilities().IsRemote {
+			// Both panes remote — use a fresh local provider instance from the other pane's original.
+			// Fallback: navigate to home with a basic local provider.
+			localProv = localprov.New()
+		}
+		ap.Provider = localProv
+		ap.Path = home
+		ap.Reload()
+		m.updateWatchers()
+		m.statusMsg = fmt.Sprintf("Disconnected from %s", label)
+		return m, tea.Batch(m.updatePreview(), m.updateGitStatus())
 
 	// --- Queue messages ---
 	case actions.OpenQueueMsg:
@@ -1561,11 +1595,14 @@ func (m *Model) renderHeader() string {
 	}
 
 	left := "  PELORUS"
-	right := "   " + paneLabel + "   ctrl+p palette   g jump   c connect  "
+	hints := "   " + paneLabel + "   ctrl+p palette   g jump   c connect  "
+	if m.activeP().Provider.Capabilities().IsRemote {
+		hints = "   " + paneLabel + "   ctrl+p palette   g jump   ctrl+d disconnect  "
+	}
 
 	// Render each section with the appropriate theme style.
 	leftPart := m.theme.HeaderTitle.Render(left)
-	rightPart := m.theme.HeaderHint.Render(right)
+	rightPart := m.theme.HeaderHint.Render(hints)
 
 	// Fill the gap with the plain header background.
 	gapW := m.width - lipgloss.Width(leftPart) - lipgloss.Width(rightPart)
@@ -1618,8 +1655,8 @@ func (m *Model) renderStatusBar() string {
 
 	// --- Right: remote badge ---
 	right := ""
-	if sftpP, ok := ap.Provider.(*sftpprov.Provider); ok {
-		right = "● " + sftpP.String()
+	if caps := ap.Provider.Capabilities(); caps.IsRemote && caps.RemoteLabel != "" {
+		right = "⇄ " + caps.RemoteLabel
 	}
 
 	// --- Far-right: perms + size + sel count ---

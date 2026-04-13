@@ -490,7 +490,12 @@ func (m *Model) View() string {
 	var sb strings.Builder
 
 	// Path header line — accent color when active, dim when inactive.
+	caps := m.Provider.Capabilities()
 	pathDisplay := m.Path
+	// Prefix remote paths with "user@hostname:" so origin is always visible.
+	if caps.RemoteLabel != "" {
+		pathDisplay = caps.RemoteLabel + ":" + m.Path
+	}
 
 	// Append sort indicator when not default.
 	sortSuffix := ""
@@ -509,19 +514,25 @@ func (m *Model) View() string {
 	}
 	pathDisplay = full
 	// Ambient color: header fg shifts subtly based on directory context.
-	//   archive  → amber  (semantic: compressed/archived content)
-	//   git repo → soft green (semantic: version-controlled)
+	//   remote   → steel blue  (semantic: not your machine)
+	//   archive  → amber       (semantic: compressed/archived content)
+	//   git repo → soft green  (semantic: version-controlled)
 	//   default  → theme accent (PathHeader style)
 	var pathStyle lipgloss.Style
 	if m.IsActive {
 		pathStyle = m.Theme.PathHeader.Copy()
 		switch {
+		case caps.IsRemote:
+			pathStyle = pathStyle.Foreground(lipgloss.Color("#60a5fa"))
 		case m.HasArchive():
 			pathStyle = pathStyle.Foreground(lipgloss.Color("#ffaa55"))
 		case m.InGitRepo:
 			pathStyle = pathStyle.Foreground(lipgloss.Color("#4ade80"))
 		// default: PathHeader already carries the theme's accent color
 		}
+	} else if caps.IsRemote {
+		// Remote panes get a faint blue even when inactive — still visibly distinct.
+		pathStyle = m.Theme.PathHeader.Copy().Foreground(lipgloss.Color("#60a5fa")).Faint(true)
 	} else {
 		pathStyle = m.Theme.PathHeader.Copy().Faint(true)
 	}

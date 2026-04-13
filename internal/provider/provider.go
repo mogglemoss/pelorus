@@ -14,6 +14,9 @@ type Caps struct {
 	CanTrash          bool
 	IsRemote          bool
 	SupportsArchive   bool
+	// RemoteLabel is non-empty for remote providers; contains "user@hostname".
+	// Used by the pane to prefix the path display.
+	RemoteLabel string
 }
 
 // Provider is the interface all filesystem backends must implement.

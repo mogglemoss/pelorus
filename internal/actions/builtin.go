@@ -112,6 +112,10 @@ type OpenWithMsg struct{}
 // ResizeSplitMsg tells the app to grow or shrink the left pane.
 type ResizeSplitMsg struct{ Delta int } // negative = shrink, positive = grow
 
+// DisconnectMsg tells the app to disconnect the active pane's remote session
+// and revert it to the local provider.
+type DisconnectMsg struct{}
+
 // RegisterBuiltins registers the standard set of built-in actions.
 func RegisterBuiltins(r *Registry) {
 	builtins := []Action{
@@ -597,6 +601,17 @@ func RegisterBuiltins(r *Registry) {
 			Keybinding:  "<",
 			Handler: func(_ AppState) tea.Cmd {
 				return func() tea.Msg { return ResizeSplitMsg{Delta: -5} }
+			},
+		},
+		{
+			ID:          "nav.disconnect",
+			Name:        "Disconnect Remote Pane",
+			Description: "Close SSH session and revert active pane to local filesystem",
+			Category:    "Navigation",
+			Context:     CtxAlways,
+			Keybinding:  "ctrl+d",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return DisconnectMsg{} }
 			},
 		},
 	}

@@ -124,6 +124,16 @@ func (p *Provider) String() string {
 	return p.label
 }
 
+// Hostname returns the SSH hostname (without port or user).
+func (p *Provider) Hostname() string {
+	return p.host
+}
+
+// User returns the SSH username.
+func (p *Provider) User() string {
+	return p.user
+}
+
 // Capabilities reports SFTP provider capabilities.
 func (p *Provider) Capabilities() provider.Caps {
 	return provider.Caps{
@@ -133,6 +143,7 @@ func (p *Provider) Capabilities() provider.Caps {
 		CanTrash:          false,
 		IsRemote:          true,
 		SupportsArchive:   false,
+		RemoteLabel:       fmt.Sprintf("%s@%s", p.user, p.host),
 	}
 }
 
