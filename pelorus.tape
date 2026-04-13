@@ -3,53 +3,50 @@
 
 Output assets/pelorus.gif
 
-Set Shell "fish"
+Set Shell "bash"
 Set FontSize 14
 Set FontFamily "JetBrainsMono Nerd Font"
 Set Width 1400
 Set Height 800
-Set Theme "Dracula"
+Set Theme "GruvboxDark"
 Set PlaybackSpeed 1.0
 Set TypingSpeed 80ms
 
-# Launch with gruvbox theme
+# Launch in demo mode with gruvbox theme
 Hide
-Type "/Users/scott/go/bin/pelorus /Users/scott/Documents/development/pelorus --theme gruvbox"
+Type "/Users/scott/go/bin/pelorus --demo --theme gruvbox"
 Enter
-Sleep 4s
+Sleep 5s
 Show
 
-# Cursor starts on assets/ — navigate down to README.md
-# Root order (dirs first): assets cmd docs internal pkg | go.mod go.sum LICENSE main.go pelorus pelorus.tape README.md
-Sleep 500ms
+# Pane opens on axiom/ — git status glyphs visible (M on server.go, user.go; ? on websocket.go)
+Sleep 1s
+
+# Toggle preview pane on
+Type "p"
+Sleep 1.5s
+
+# Navigate down to README.md — preview renders markdown
 Type "j"
-Sleep 100ms
+Sleep 150ms
 Type "j"
-Sleep 100ms
+Sleep 150ms
 Type "j"
-Sleep 100ms
+Sleep 150ms
 Type "j"
-Sleep 100ms
+Sleep 150ms
 Type "j"
-Sleep 100ms
+Sleep 150ms
 Type "j"
-Sleep 100ms
+Sleep 150ms
 Type "j"
-Sleep 100ms
+Sleep 150ms
 Type "j"
-Sleep 100ms
-Type "j"
-Sleep 100ms
-Type "j"
-Sleep 100ms
+Sleep 150ms
 Type "j"
 Sleep 1.5s
 
-# Preview pane shows rendered README.md markdown
-
-# Scroll through the README
-Type "]"
-Sleep 400ms
+# Scroll through the rendered README
 Type "]"
 Sleep 400ms
 Type "]"
@@ -59,129 +56,141 @@ Sleep 400ms
 Type "]"
 Sleep 1s
 
-# Navigate back up to internal/ (8 k presses up from README.md)
+# Navigate to internal/ — enter it
 Type "k"
-Sleep 100ms
+Sleep 150ms
 Type "k"
-Sleep 100ms
+Sleep 150ms
 Type "k"
-Sleep 100ms
+Sleep 150ms
 Type "k"
-Sleep 100ms
+Sleep 150ms
 Type "k"
-Sleep 100ms
-Type "k"
-Sleep 100ms
-Type "k"
-Sleep 100ms
+Sleep 150ms
 Type "k"
 Sleep 500ms
-
-# Enter internal/
 Type "l"
-Sleep 1s
+Sleep 1.2s
 
-# Navigate down to theme/ (13 j presses: app config connect gitstatus help jump nav ops palette pane preview provider theme)
-Type "j"
-Sleep 100ms
-Type "j"
-Sleep 100ms
-Type "j"
-Sleep 100ms
-Type "j"
-Sleep 100ms
-Type "j"
-Sleep 100ms
-Type "j"
-Sleep 100ms
-Type "j"
-Sleep 100ms
-Type "j"
-Sleep 100ms
-Type "j"
-Sleep 100ms
-Type "j"
-Sleep 100ms
-Type "j"
-Sleep 100ms
-Type "j"
-Sleep 100ms
-Type "j"
+# Preview shows api/ directory listing — enter api/
+Type "l"
+Sleep 1.2s
+
+# Preview shows server.go with syntax highlighting — navigate to it
+Type "l"
+Sleep 1.5s
+
+# Scroll through server.go
+Type "]"
+Sleep 400ms
+Type "]"
+Sleep 400ms
+Type "]"
 Sleep 800ms
 
-# Enter theme/
-Type "l"
-Sleep 1s
+# Search within the file preview
+Type "/"
+Sleep 600ms
+Type "ListenAndServe"
+Sleep 1.5s
 
-# Preview shows theme.go with syntax highlighting — scroll through it
-Type "]"
-Sleep 400ms
-Type "]"
-Sleep 400ms
-Type "]"
-Sleep 400ms
-Type "]"
-Sleep 400ms
-Type "]"
-Sleep 400ms
-Type "]"
-Sleep 1s
-
-# Navigate to omarchy.go (j once)
-Type "j"
-Sleep 1s
-
-# Back out to root
-Type "h"
+# Close search, back out to root
+Escape
 Sleep 500ms
+Type "h"
+Sleep 300ms
+Type "h"
+Sleep 300ms
 Type "h"
 Sleep 800ms
 
-# Show sort cycling on the root directory
+# Demonstrate sort cycling
 Type "s"
+Sleep 900ms
+Type "s"
+Sleep 900ms
+Type "s"
+Sleep 900ms
+Type "s"
+Sleep 800ms
+
+# Set a mark on this directory, then navigate away and jump back
+Type "ma"
+Sleep 700ms
+
+# Enter web/src/components/ using fuzzy filter
+Type "l"
+Sleep 500ms
+Type "web"
+Sleep 800ms
+Escape
+Sleep 300ms
+Type "l"
+Sleep 500ms
+Type "src"
+Sleep 800ms
+Escape
+Sleep 300ms
+Type "l"
 Sleep 1s
-Type "s"
-Sleep 1s
-Type "s"
-Sleep 1s
-Type "s"
+
+# Jump back to axiom root via mark
+Type "'a"
+Sleep 1.2s
+
+# Switch to right pane, navigate to docs/
+Tab
+Sleep 600ms
+Type "j"
+Sleep 150ms
+Type "j"
+Sleep 150ms
+Type "j"
+Sleep 500ms
+Type "l"
+Sleep 1.2s
+
+# Navigate to api.md — preview shows rendered markdown
+Type "j"
+Sleep 1.5s
+
+# Resize split: grow left pane a bit
+Tab
+Sleep 400ms
+Type ">"
+Sleep 300ms
+Type ">"
+Sleep 300ms
+Type ">"
+Sleep 300ms
+Type ">"
+Sleep 800ms
+
+# Shrink back
+Type "<"
+Sleep 300ms
+Type "<"
+Sleep 300ms
+Type "<"
+Sleep 300ms
+Type "<"
+Sleep 800ms
+
+# Open recursive search overlay
+Ctrl+f
+Sleep 2s
+Type "postgres"
+Sleep 1.5s
+Escape
 Sleep 800ms
 
 # Open command palette
 Type ":"
-Sleep 2s
-
-# Close palette
+Sleep 1.5s
+Type "copy"
+Sleep 1.2s
 Escape
 Sleep 800ms
-
-# Switch to right pane and navigate to docs/
-Tab
-Sleep 800ms
-Type "j"
-Sleep 100ms
-Type "j"
-Sleep 500ms
-
-# Enter docs/
-Type "l"
-Sleep 1s
-
-# Preview shows enhancements.md — scroll through it
-Type "]"
-Sleep 400ms
-Type "]"
-Sleep 400ms
-Type "]"
-Sleep 400ms
-
-# Navigate to reference.md
-Type "j"
-Sleep 1.5s
-
-# Switch back to left pane
-Tab
-Sleep 500ms
 
 # Quit
 Type "q"

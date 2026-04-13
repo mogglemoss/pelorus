@@ -13,12 +13,14 @@ import (
 	"github.com/mogglemoss/pelorus/internal/actions"
 	"github.com/mogglemoss/pelorus/internal/app"
 	"github.com/mogglemoss/pelorus/internal/config"
+	"github.com/mogglemoss/pelorus/internal/demo"
 	"github.com/mogglemoss/pelorus/internal/provider/local"
 	"github.com/mogglemoss/pelorus/internal/theme"
 )
 
 var cfgFile string
 var themeName string
+var demoMode bool
 
 var rootCmd = &cobra.Command{
 	Use:     "pelorus [path]",
@@ -37,6 +39,7 @@ Usage:
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "f", "", "config file (default: XDG config dir)")
 	rootCmd.PersistentFlags().StringVarP(&themeName, "theme", "t", "", "theme override (pelorus, gruvbox, nord, light, dracula, catppuccin, omarchy)")
+	rootCmd.PersistentFlags().BoolVar(&demoMode, "demo", false, "start with a sandboxed demo filesystem (for recordings and screenshots)")
 }
 
 // Execute runs the root command.
@@ -47,6 +50,17 @@ func Execute() {
 }
 
 func run(cmd *cobra.Command, args []string) error {
+	// Demo mode: build a sandboxed temp filesystem and use it as the start dir.
+	if demoMode {
+		demoRoot, cleanup, err := demo.Setup()
+		if err != nil {
+			return fmt.Errorf("demo setup: %w", err)
+		}
+		defer cleanup()
+		// Point into the axiom project inside the demo root.
+		args = []string{filepath.Join(demoRoot, "axiom")}
+	}
+
 	// Resolve starting directory.
 	startDir := "."
 	if len(args) > 0 {
