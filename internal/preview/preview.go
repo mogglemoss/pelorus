@@ -3,9 +3,14 @@ package preview
 import (
 	"bytes"
 	"fmt"
+	"hash/fnv"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
+	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -33,7 +38,7 @@ const maxReadBytes = 64 * 1024 // 64 KB
 type ContentReadyMsg struct {
 	Content string
 	Err     error
-	IsImage bool // true when Content is chafa pixel output — skip stripANSIBg
+	IsImage bool // true for image card output — skip stripANSIBg post-processing
 }
 
 // Model is the Bubbletea model for the preview pane.
@@ -120,8 +125,7 @@ func (m *Model) SetContent(msg ContentReadyMsg) {
 		content = stripANSIBg(content)
 		content = softenResets(content)
 	}
-	// Image content (chafa) uses its own fg/bg colors and reverse video
-	// for pixel encoding — leave its ANSI sequences untouched.
+	// Image card content uses only fg colors — leave its ANSI sequences untouched.
 
 	m.rawContent = content
 	m.vp.SetContent(content)
@@ -459,12 +463,9 @@ func renderFile(fi *fileinfo.FileInfo, width, height int) (string, error) {
 		return renderDir(fi, innerW, contentLines)
 	}
 
-	// Image files: try chafa, fall back to stub.
+	// Image files: render metadata card with artist tile.
 	if isImageExt(filepath.Ext(fi.Name)) {
-		if img, err := renderChafa(fi.Path, innerW, contentLines); err == nil {
-			return img, nil
-		}
-		return renderImageStub(fi)
+		return renderImageCard(fi, fi.Path, innerW)
 	}
 
 	// Try to read the file.
@@ -594,12 +595,191 @@ func renderDir(fi *fileinfo.FileInfo, width, maxLines int) (string, error) {
 	return sb.String(), nil
 }
 
-func renderImageStub(fi *fileinfo.FileInfo) (string, error) {
-	return fmt.Sprintf(
-		"Image file: %s\nSize: %s\n\n[image preview not available in this terminal]",
-		fi.Name,
-		fileinfo.HumanSize(fi.Size),
-	), nil
+// renderImageCard renders a rich metadata card for image files.
+// It shows a procedural artist tile (unique per file, colored from pixel data or hash)
+// followed by a metadata table with format, size, dimensions, and modification time.
+func renderImageCard(fi *fileinfo.FileInfo, path string, width int) (string, error) {
+	// Try to decode image dimensions from header only.
+	dimStr := "unknown"
+	if f, err := os.Open(path); err == nil {
+		if cfg, _, err2 := image.DecodeConfig(f); err2 == nil {
+			dimStr = fmt.Sprintf("%d × %d", cfg.Width, cfg.Height)
+		}
+		f.Close()
+	}
+
+	col := sampleOrHashColor(fi, path)
+
+	ext := strings.ToUpper(strings.TrimPrefix(strings.ToLower(filepath.Ext(fi.Name)), "."))
+	if ext == "" {
+		ext = "IMAGE"
+	}
+
+	lbl := lipgloss.NewStyle().Foreground(lipgloss.Color("#777777"))
+	val := lipgloss.NewStyle().Bold(true)
+	rows := []string{
+		lbl.Render("format  ") + val.Render(ext),
+		lbl.Render("size    ") + val.Render(fileinfo.HumanSize(fi.Size)),
+		lbl.Render("dims    ") + val.Render(dimStr),
+		lbl.Render("modified") + val.Render(fi.ModTime.Format("2006-01-02 15:04")),
+	}
+
+	tile := buildArtistTile(fi.Name, fi.Size, col, width)
+	return tile + "\n\n" + strings.Join(rows, "\n"), nil
+}
+
+// sampleOrHashColor tries to sample a representative pixel from the image for
+// its color. Falls back to a deterministic color derived from the filename hash
+// when the image is too large to decode safely or decoding fails.
+func sampleOrHashColor(fi *fileinfo.FileInfo, path string) lipgloss.Color {
+	f, err := os.Open(path)
+	if err != nil {
+		return hashColor(fi.Name, fi.Size)
+	}
+	defer f.Close()
+
+	// Check dimensions first to avoid allocating huge pixel buffers.
+	cfg, _, err := image.DecodeConfig(f)
+	if err != nil || cfg.Width > 1000 || cfg.Height > 1000 {
+		return hashColor(fi.Name, fi.Size)
+	}
+
+	// Re-open for full decode (DecodeConfig consumed the reader).
+	f.Close()
+	f2, err := os.Open(path)
+	if err != nil {
+		return hashColor(fi.Name, fi.Size)
+	}
+	defer f2.Close()
+
+	img, _, err := image.Decode(io.LimitReader(f2, maxReadBytes))
+	if err != nil {
+		return hashColor(fi.Name, fi.Size)
+	}
+
+	bounds := img.Bounds()
+	dx, dy := bounds.Dx(), bounds.Dy()
+	if dx == 0 || dy == 0 {
+		return hashColor(fi.Name, fi.Size)
+	}
+
+	// Sample from five positions distributed across the image.
+	pts := [][2]int{
+		{bounds.Min.X + dx/4, bounds.Min.Y + dy/4},
+		{bounds.Min.X + dx/2, bounds.Min.Y + dy/2},
+		{bounds.Min.X + 3*dx/4, bounds.Min.Y + 3*dy/4},
+		{bounds.Min.X + dx/4, bounds.Min.Y + 3*dy/4},
+		{bounds.Min.X + 3*dx/4, bounds.Min.Y + dy/4},
+	}
+	var bestSat uint32
+	var bestR, bestG, bestB uint8
+	for _, pt := range pts {
+		if pt[0] >= bounds.Max.X || pt[1] >= bounds.Max.Y {
+			continue
+		}
+		r, g, b, _ := img.At(pt[0], pt[1]).RGBA()
+		r8, g8, b8 := uint8(r>>8), uint8(g>>8), uint8(b>>8)
+		if sat := colorSaturation(r8, g8, b8); sat > bestSat {
+			bestSat = sat
+			bestR, bestG, bestB = r8, g8, b8
+		}
+	}
+	if bestSat > 20 { // ignore near-grey pixels
+		return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", bestR, bestG, bestB))
+	}
+	return hashColor(fi.Name, fi.Size)
+}
+
+// colorSaturation returns the chroma (max-min of RGB channels) as a saturation proxy.
+func colorSaturation(r, g, b uint8) uint32 {
+	max := r
+	if g > max {
+		max = g
+	}
+	if b > max {
+		max = b
+	}
+	min := r
+	if g < min {
+		min = g
+	}
+	if b < min {
+		min = b
+	}
+	return uint32(max) - uint32(min)
+}
+
+// hashColor derives a deterministic, vivid color from a filename and size.
+func hashColor(name string, size int64) lipgloss.Color {
+	h := fnv.New32a()
+	h.Write([]byte(name))
+	h.Write([]byte(strconv.FormatInt(size, 10)))
+	v := h.Sum32()
+	r, g, b := hslToRGB(float64(v%360), 0.70, 0.62)
+	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", r, g, b))
+}
+
+// hslToRGB converts HSL values to 8-bit RGB components.
+func hslToRGB(h, s, l float64) (uint8, uint8, uint8) {
+	c := (1 - math.Abs(2*l-1)) * s
+	x := c * (1 - math.Abs(math.Mod(h/60.0, 2.0)-1.0))
+	m := l - c/2.0
+	var r, g, b float64
+	switch {
+	case h < 60:
+		r, g, b = c, x, 0
+	case h < 120:
+		r, g, b = x, c, 0
+	case h < 180:
+		r, g, b = 0, c, x
+	case h < 240:
+		r, g, b = 0, x, c
+	case h < 300:
+		r, g, b = x, 0, c
+	default:
+		r, g, b = c, 0, x
+	}
+	return uint8((r+m)*255 + 0.5), uint8((g+m)*255 + 0.5), uint8((b+m)*255 + 0.5)
+}
+
+// buildArtistTile generates a deterministic block-character tile for an image file.
+// The pattern is derived from the filename+size hash; the color comes from pixel
+// sampling or falls back to a hash-derived hue.
+func buildArtistTile(name string, size int64, col lipgloss.Color, width int) string {
+	h := fnv.New64a()
+	h.Write([]byte(name))
+	h.Write([]byte(strconv.FormatInt(size, 10)))
+	v := h.Sum64()
+
+	const (
+		lcgA  uint64 = 6364136223846793005
+		lcgC  uint64 = 1442695040888963407
+		tileH        = 5
+	)
+	blocks := []rune("▀▄█▌▐▙▛▜▟░▒▓")
+
+	tileW := width - 2
+	if tileW < 8 {
+		tileW = 8
+	}
+	if tileW > 40 {
+		tileW = 40
+	}
+
+	style := lipgloss.NewStyle().Foreground(col)
+	var sb strings.Builder
+	for row := 0; row < tileH; row++ {
+		var line strings.Builder
+		for ci := 0; ci < tileW; ci++ {
+			v = v*lcgA + lcgC
+			line.WriteRune(blocks[v>>58%uint64(len(blocks))])
+		}
+		if row > 0 {
+			sb.WriteByte('\n')
+		}
+		sb.WriteString(style.Render(line.String()))
+	}
+	return sb.String()
 }
 
 func renderFileInfo(fi *fileinfo.FileInfo) string {
@@ -612,100 +792,6 @@ func renderFileInfo(fi *fileinfo.FileInfo) string {
 	)
 }
 
-// renderChafa renders an image using the chafa terminal graphics tool.
-// Returns an error if chafa is not installed or the command fails.
-func renderChafa(path string, width, height int) (string, error) {
-	if _, err := exec.LookPath("chafa"); err != nil {
-		return "", fmt.Errorf("chafa not found")
-	}
-	size := fmt.Sprintf("%dx%d", width, height)
-	cmd := exec.Command("chafa", "--size", size, "--colors", "full", path)
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	s := string(out)
-	// Strip IND sequences that cause terminal scrolling inside bubbletea.
-	s = strings.ReplaceAll(s, "\x1bD", "")
-	s = strings.TrimRight(s, "\n")
-	// Convert reverse video sequences to explicit bg colors. Chafa uses
-	// \x1b[7m (reverse video) for half-block pixel encoding, but bubbletea's
-	// diff-based renderer can't track the swapped fg/bg state, causing layout
-	// corruption when it repaints partial lines.
-	s = resolveReverseVideo(s)
-	return s, nil
-}
-
-// resolveReverseVideo converts \x1b[7m (reverse video) sequences into explicit
-// background color codes so the output no longer relies on terminal-level
-// attribute swapping. This prevents bubbletea's renderer from corrupting the
-// layout when diffing frames that contain reverse video.
-func resolveReverseVideo(s string) string {
-	var b strings.Builder
-	b.Grow(len(s))
-
-	reversed := false
-	var fgR, fgG, fgB int
-	hasFg := false
-
-	i := 0
-	for i < len(s) {
-		// Look for ESC[
-		if i+1 < len(s) && s[i] == '\x1b' && s[i+1] == '[' {
-			// Find the end of the SGR sequence
-			j := i + 2
-			for j < len(s) && s[j] != 'm' {
-				j++
-			}
-			if j < len(s) {
-				// Parse parameters
-				paramStr := s[i+2 : j]
-				if paramStr == "" || paramStr == "0" {
-					// Full reset — emit it, clear state
-					b.WriteString("\x1b[0m")
-					reversed = false
-					hasFg = false
-					i = j + 1
-					continue
-				}
-				if paramStr == "7" {
-					// Reverse video on — don't emit, just track state.
-					// Convert current fg to bg.
-					reversed = true
-					if hasFg {
-						fmt.Fprintf(&b, "\x1b[48;2;%d;%d;%dm", fgR, fgG, fgB)
-					}
-					i = j + 1
-					continue
-				}
-				// Check for fg color: 38;2;r;g;b
-				params := strings.Split(paramStr, ";")
-				if len(params) >= 5 && params[0] == "38" && params[1] == "2" {
-					r, _ := strconv.Atoi(params[2])
-					g, _ := strconv.Atoi(params[3])
-					bv, _ := strconv.Atoi(params[4])
-					if reversed {
-						// In reverse mode, "fg" becomes visible bg
-						fmt.Fprintf(&b, "\x1b[48;2;%d;%d;%dm", r, g, bv)
-					} else {
-						b.WriteString(s[i : j+1])
-					}
-					fgR, fgG, fgB = r, g, bv
-					hasFg = true
-					i = j + 1
-					continue
-				}
-				// Pass through other sequences
-				b.WriteString(s[i : j+1])
-				i = j + 1
-				continue
-			}
-		}
-		b.WriteByte(s[i])
-		i++
-	}
-	return b.String()
-}
 
 func isImageExt(ext string) bool {
 	switch strings.ToLower(ext) {
