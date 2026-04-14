@@ -1,3 +1,7 @@
+// Package palette implements the command palette overlay: a fuzzy-searchable
+// modal list of all registered actions. The palette is designed as a
+// two-column picker — action name and optional description on the left, key
+// chip(s) on the right — grouped by category with accented section rules.
 package palette
 
 import (
@@ -25,6 +29,25 @@ type RunActionMsg struct {
 // categoryOrder defines the display order for known categories.
 var categoryOrder = []string{
 	"Navigation", "File", "View", "App", "Custom",
+}
+
+// categoryGlyph returns a single-rune icon for a category, used as a prefix
+// on category headers for quick visual scanning.
+func categoryGlyph(cat string) string {
+	switch strings.ToLower(cat) {
+	case "navigation":
+		return "⇄"
+	case "file":
+		return "▤"
+	case "view":
+		return "▦"
+	case "app":
+		return "⌘"
+	case "custom":
+		return "✦"
+	default:
+		return "·"
+	}
 }
 
 func categoryPriority(cat string) int {
@@ -89,6 +112,7 @@ type Model struct {
 func New(reg *actions.Registry, t *theme.Theme) *Model {
 	ti := textinput.New()
 	ti.Placeholder = "Search actions…"
+	ti.Prompt = ""
 	ti.Focus()
 	ti.CharLimit = 128
 
@@ -188,20 +212,30 @@ func (m *Model) applyFilter() {
 
 // View renders the palette as a centered overlay string.
 func (m *Model) View() string {
-	boxW := 64
+	boxW := 72
 	if m.Width > 0 && boxW > m.Width-4 {
 		boxW = m.Width - 4
 	}
 	innerW := boxW - 4
 	maxDisplayLines := 14
 
+	t := m.Theme
+	bg := t.PaletteBox.GetBackground()
+	accentBg := lipgloss.NewStyle().Background(bg)
+
 	var sb strings.Builder
 
-	// Input field.
-	inputLine := m.Theme.PaletteInput.Width(innerW).Render(m.Input.View())
-	sb.WriteString(inputLine)
+	// --- Input row: accent prompt glyph + textinput, on the palette bg.
+	promptStyle := t.PaletteInput.Copy().Bold(true)
+	prompt := promptStyle.Render(" ❯ ")
+	promptW := lipgloss.Width(prompt)
+	inputField := t.PaletteInput.Copy().Width(innerW - promptW).Render(m.Input.View())
+	sb.WriteString(prompt + inputField)
 	sb.WriteString("\n")
-	sb.WriteString(strings.Repeat("─", innerW))
+
+	// Thin rule below the input.
+	ruleStyle := lipgloss.NewStyle().Background(bg).Foreground(t.Divider.GetForeground())
+	sb.WriteString(ruleStyle.Render(strings.Repeat("─", innerW)))
 	sb.WriteString("\n")
 
 	query := m.Input.Value()
@@ -212,23 +246,33 @@ func (m *Model) View() string {
 		m.renderFlat(&sb, innerW, maxDisplayLines)
 	}
 
-	// Footer.
+	// --- Footer: count pill on the right, hint on the left.
 	sb.WriteString("\n")
-	footerStyle := m.Theme.PaletteItem.Copy().Faint(true)
+	hint := " ↑↓ navigate  ·  enter run  ·  esc close"
+	hintStyle := t.PaletteItem.Copy().Faint(true)
 	countStr := ""
 	if len(m.Filtered) > 0 {
-		countStr = fmt.Sprintf(" · %d/%d", m.Cursor+1, len(m.Filtered))
+		countStr = fmt.Sprintf("%d/%d ", m.Cursor+1, len(m.Filtered))
 	}
-	sb.WriteString(footerStyle.Width(innerW).Render("  ↑↓ navigate · enter select · esc close" + countStr))
+	countStyle := t.PaletteCategoryHeader.Copy()
+	countRender := countStyle.Render(countStr)
+	countW := lipgloss.Width(countRender)
+	pad := innerW - lipgloss.Width(hint) - countW
+	if pad < 1 {
+		pad = 1
+	}
+	sb.WriteString(hintStyle.Render(hint))
+	sb.WriteString(accentBg.Width(pad).Render(""))
+	sb.WriteString(countRender)
 
 	content := strings.TrimRight(sb.String(), "\n")
-	return m.Theme.PaletteBox.Width(boxW).Render(content)
+	return t.PaletteBox.Width(boxW).Render(content)
 }
 
 // renderGrouped renders actions grouped by category with headers.
 func (m *Model) renderGrouped(sb *strings.Builder, innerW, maxLines int) {
 	if len(m.Filtered) == 0 {
-		empty := m.Theme.PaletteItem.Width(innerW).Render("No actions found")
+		empty := m.Theme.PaletteItem.Width(innerW).Render("  no actions")
 		sb.WriteString(empty)
 		sb.WriteString("\n")
 		return
@@ -255,23 +299,16 @@ func (m *Model) renderGrouped(sb *strings.Builder, innerW, maxLines int) {
 		winEnd = len(displayItems)
 	}
 
-	headerStyle := m.Theme.PaletteItem.Copy().
-		Foreground(lipgloss.Color("#00a896")).
-		Bold(true).
-		Width(innerW)
-
-	for _, di := range displayItems[winStart:winEnd] {
+	for i, di := range displayItems[winStart:winEnd] {
 		if di.isHeader {
-			sb.WriteString(headerStyle.Render("  " + strings.ToUpper(di.category)))
-		} else {
-			label := formatActionLabel(di.action, innerW)
-			var style lipgloss.Style
-			if di.actionIdx == m.Cursor {
-				style = m.Theme.PaletteSelected.Width(innerW)
-			} else {
-				style = m.Theme.PaletteItem.Width(innerW)
+			// Add a blank spacer row before any non-first header.
+			if winStart+i > 0 {
+				sb.WriteString(m.Theme.PaletteItem.Width(innerW).Render(""))
+				sb.WriteString("\n")
 			}
-			sb.WriteString(style.Render(label))
+			sb.WriteString(m.renderCategoryHeader(di.category, innerW))
+		} else {
+			sb.WriteString(m.renderActionRow(di.action, di.actionIdx == m.Cursor, innerW))
 		}
 		sb.WriteString("\n")
 	}
@@ -280,7 +317,7 @@ func (m *Model) renderGrouped(sb *strings.Builder, innerW, maxLines int) {
 // renderFlat renders actions as a flat list (used when a query is active).
 func (m *Model) renderFlat(sb *strings.Builder, innerW, maxItems int) {
 	if len(m.Filtered) == 0 {
-		empty := m.Theme.PaletteItem.Width(innerW).Render("No actions found")
+		empty := m.Theme.PaletteItem.Width(innerW).Render("  no matches")
 		sb.WriteString(empty)
 		sb.WriteString("\n")
 		return
@@ -296,22 +333,41 @@ func (m *Model) renderFlat(sb *strings.Builder, innerW, maxItems int) {
 	}
 
 	for i := start; i < end; i++ {
-		a := m.Filtered[i]
-		label := formatActionLabel(a, innerW)
-		var style lipgloss.Style
-		if i == m.Cursor {
-			style = m.Theme.PaletteSelected.Width(innerW)
-		} else {
-			style = m.Theme.PaletteItem.Width(innerW)
-		}
-		sb.WriteString(style.Render(label))
+		sb.WriteString(m.renderActionRow(m.Filtered[i], i == m.Cursor, innerW))
 		sb.WriteString("\n")
 	}
 }
 
-// formatActionLabel builds the display label for an action row.
-func formatActionLabel(a actions.Action, maxW int) string {
-	// Collect all keybindings for display.
+// renderCategoryHeader renders an accented section header with a glyph and
+// a trailing rule that fills to innerW.
+//
+//	 ⇄  NAVIGATION ─────────────────────────────
+func (m *Model) renderCategoryHeader(category string, innerW int) string {
+	t := m.Theme
+	bg := t.PaletteBox.GetBackground()
+	glyph := categoryGlyph(category)
+	label := strings.ToUpper(category)
+	head := " " + glyph + "  " + label + " "
+	headRender := t.PaletteCategoryHeader.Render(head)
+	rule := lipgloss.NewStyle().Foreground(t.Divider.GetForeground()).Background(bg)
+	fill := innerW - lipgloss.Width(headRender)
+	if fill < 0 {
+		fill = 0
+	}
+	return headRender + rule.Render(strings.Repeat("─", fill))
+}
+
+// renderActionRow renders a single action row: left accent bar when selected,
+// the action name + optional dim description on the left, right-aligned key
+// chip(s) on the right.
+//
+//	▌  rename file              r
+//	   copy to clipboard        y
+func (m *Model) renderActionRow(a actions.Action, selected bool, innerW int) string {
+	t := m.Theme
+	bg := t.PaletteBox.GetBackground()
+
+	// Gather keybindings for the right column.
 	var kbs []string
 	if a.Keybinding != "" {
 		kb := a.Keybinding
@@ -326,14 +382,75 @@ func formatActionLabel(a actions.Action, maxW int) string {
 		}
 	}
 
-	var label string
+	// Compose right-side key chips (each in FooterKey style on palette bg).
+	var keyRender string
+	var keyW int
 	if len(kbs) > 0 {
-		label = "  " + a.Name + " [" + strings.Join(kbs, " · ") + "]"
+		chipStyle := t.FooterKey.Copy().Background(bg).Bold(true)
+		chips := make([]string, len(kbs))
+		for i, k := range kbs {
+			chips[i] = chipStyle.Render(" " + k + " ")
+		}
+		sepStyle := lipgloss.NewStyle().Background(bg).Foreground(t.StatusBarMuted.GetForeground())
+		sep := sepStyle.Render(" ")
+		keyRender = strings.Join(chips, sep) + " "
+		keyW = lipgloss.Width(keyRender)
+	}
+
+	// Left gutter: selection bar, otherwise 2 spaces.
+	var leftBar string
+	var leftBarW int
+	if selected {
+		leftBar = t.PaletteSelected.Copy().Render("▌ ")
+		leftBarW = lipgloss.Width(leftBar)
 	} else {
-		label = "  " + a.Name
+		leftBar = lipgloss.NewStyle().Background(bg).Render("  ")
+		leftBarW = 2
 	}
-	if lipgloss.Width(label) > maxW {
-		label = label[:maxW-1] + "…"
+
+	// Middle: name + optional description.
+	midW := innerW - leftBarW - keyW
+	if midW < 4 {
+		midW = 4
 	}
-	return label
+
+	var nameStyle, descStyle lipgloss.Style
+	if selected {
+		nameStyle = t.PaletteSelected.Copy()
+		descStyle = t.PaletteSelected.Copy().Faint(true)
+	} else {
+		nameStyle = t.PaletteItem.Copy()
+		descStyle = t.PaletteItem.Copy().Faint(true)
+	}
+
+	name := a.Name
+	desc := a.Description
+	// Compose name + "  " + desc, clipped to midW.
+	middle := name
+	if desc != "" && desc != name {
+		middle = name + "  " + desc
+	}
+	if lipgloss.Width(middle) > midW {
+		middle = middle[:midW-1] + "…"
+	}
+	// Split back for separate styling.
+	var midRender string
+	if desc != "" && desc != name && strings.HasPrefix(middle, name+"  ") {
+		rest := strings.TrimPrefix(middle, name+"  ")
+		midRender = nameStyle.Render(name) + nameStyle.Render("  ") + descStyle.Render(rest)
+	} else {
+		midRender = nameStyle.Render(middle)
+	}
+	// Pad middle to midW (background-aware).
+	midActualW := lipgloss.Width(midRender)
+	if midActualW < midW {
+		pad := midW - midActualW
+		bgStyle := lipgloss.NewStyle().Background(bg)
+		if selected {
+			bgStyle = t.PaletteSelected.Copy()
+		}
+		midRender += bgStyle.Render(strings.Repeat(" ", pad))
+	}
+
+	return leftBar + midRender + keyRender
 }

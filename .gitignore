@@ -3,3 +3,8 @@ pelorus
 *.test
 *.out
 .DS_Store
+
+# Local scratchpads — not for the public repo
+.claude/
+docs/enhancements.md
+docs/redesign.md

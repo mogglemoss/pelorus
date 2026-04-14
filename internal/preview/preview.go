@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/alecthomas/chroma/v2"
@@ -55,6 +56,10 @@ type Model struct {
 	matchIdx      int
 	rawContent    string // content before search highlighting
 	searchInput   textinput.Model
+
+	// contentReadyAt marks when SetContent last completed; used to flash a
+	// brief accent divider in View() so content changes are visually obvious.
+	contentReadyAt time.Time
 }
 
 // New creates a new preview Model.
@@ -84,6 +89,14 @@ func (m *Model) Init() tea.Cmd {
 
 // SetFile sets the file to preview and returns a tea.Cmd that loads content asynchronously.
 func (m *Model) SetFile(fi *fileinfo.FileInfo) tea.Cmd {
+	return m.SetFileWithGit(fi, "")
+}
+
+// SetFileWithGit is like SetFile but takes an optional git status glyph.
+// When glyph is "M" or "A", the preview attempts to render `git diff` output
+// instead of the file body. Falls through to the normal preview if the diff
+// is empty or git is unavailable.
+func (m *Model) SetFileWithGit(fi *fileinfo.FileInfo, gitGlyph string) tea.Cmd {
 	m.file = fi
 	m.err = nil
 	m.loading = true
@@ -93,9 +106,12 @@ func (m *Model) SetFile(fi *fileinfo.FileInfo) tea.Cmd {
 	height := m.Height
 
 	isImg := fi != nil && isImageExt(filepath.Ext(fi.Name))
+	// Capture the theme for the goroutine — Theme is a value, not a pointer,
+	// so this is a snapshot that won't race with later theme switches.
+	t := m.Theme
 	return tea.Batch(
 		func() tea.Msg {
-			content, err := renderFile(fi, width, height)
+			content, err := renderFile(fi, width, height, t, gitGlyph)
 			return ContentReadyMsg{Content: content, Err: err, IsImage: isImg}
 		},
 		m.spinner.Tick,
@@ -124,6 +140,7 @@ func (m *Model) SetContent(msg ContentReadyMsg) {
 	m.rawContent = content
 	m.vp.SetContent(content)
 	m.vp.GotoTop()
+	m.contentReadyAt = time.Now()
 	if m.searchOpen && m.searchQuery != "" {
 		m.rebuildSearch()
 	}
@@ -385,9 +402,16 @@ func (m *Model) View() string {
 	header := m.Theme.StatusBarAccent.Copy().Bold(true).Width(innerW).Render(headerText)
 	headerH := lipgloss.Height(header)
 
-	// Separator.
-	sep := strings.Repeat("─", innerW)
-	separator := m.Theme.Divider.Render(sep)
+	// Separator. Flashes to a thicker accent line for ~800ms after SetContent
+	// so users notice the preview just updated. The mascot tick at 550ms
+	// guarantees a re-render that drops back to the normal divider.
+	var separator string
+	if !m.contentReadyAt.IsZero() && time.Since(m.contentReadyAt) < 800*time.Millisecond {
+		accent := m.Theme.StatusBarAccent.Copy().Bold(true)
+		separator = accent.Render(strings.Repeat("━", innerW))
+	} else {
+		separator = m.Theme.Divider.Render(strings.Repeat("─", innerW))
+	}
 
 	// Viewport area: innerH minus actual header height, minus separator (1 line).
 	vpH := innerH - headerH - 1
@@ -451,7 +475,7 @@ func (m *Model) View() string {
 }
 
 // renderFile does the heavy lifting: reads the file and produces a rendered string.
-func renderFile(fi *fileinfo.FileInfo, width, height int) (string, error) {
+func renderFile(fi *fileinfo.FileInfo, width, height int, t *theme.Theme, gitGlyph string) (string, error) {
 	if fi == nil {
 		return "", nil
 	}
@@ -472,25 +496,32 @@ func renderFile(fi *fileinfo.FileInfo, width, height int) (string, error) {
 
 	// Symlinks: show a target-focused card (including broken-link indicator).
 	if fi.IsSymlink {
-		return renderSymlinkCard(fi, innerW), nil
+		return renderSymlinkCard(fi, innerW, t), nil
+	}
+
+	// Git-modified files: try to render diff output first.
+	if gitGlyph == "M" || gitGlyph == "A" {
+		if diff, ok := renderGitDiff(fi.Path, innerW); ok {
+			return diff, nil
+		}
 	}
 
 	// Image files: render metadata card with artist tile.
 	if isImageExt(filepath.Ext(fi.Name)) {
-		return renderImageCard(fi, fi.Path, innerW)
+		return renderImageCard(fi, fi.Path, innerW, t)
 	}
 
 	// Try to read the file.
 	f, err := os.Open(fi.Path)
 	if err != nil {
-		return renderInfoCard(fi, innerW), nil
+		return renderInfoCard(fi, innerW, t), nil
 	}
 	defer f.Close()
 
 	limited := io.LimitReader(f, maxReadBytes+1)
 	raw, err := io.ReadAll(limited)
 	if err != nil {
-		return renderInfoCard(fi, innerW), nil
+		return renderInfoCard(fi, innerW, t), nil
 	}
 
 	truncated := false
@@ -501,7 +532,7 @@ func renderFile(fi *fileinfo.FileInfo, width, height int) (string, error) {
 
 	// Check UTF-8.
 	if !utf8.Valid(raw) {
-		return renderInfoCard(fi, innerW), nil
+		return renderInfoCard(fi, innerW, t), nil
 	}
 
 	content := string(raw)

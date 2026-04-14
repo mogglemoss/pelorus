@@ -7,7 +7,7 @@
 
 *A file manager with opinions.*
 
-Dual-pane TUI file manager. Local filesystem. SFTP remotes. Tailscale nodes. Archives as directories. Fuzzy everywhere. Zero configuration required to be useful.
+Dual-pane TUI file manager. Local filesystem, SFTP remotes, and Tailscale nodes, addressed identically. Archives behave as directories. Fuzzy filtering everywhere it fits. One static binary, no runtime dependencies, no configuration required to be useful on first launch.
 
 ---
 
@@ -30,14 +30,14 @@ Dual-pane TUI file manager. Local filesystem. SFTP remotes. Tailscale nodes. Arc
 - `j` / `k` / `h` / `l` — you know what these do
 - Type in any pane to fuzzy-filter its contents live
 - `g` opens the jump list — frecency-ranked, fuzzy-searchable, persistent
-- `B` to pin the current directory; `~` to go home; `ctrl+l` to type a path directly
+- `B` to pin the current directory; `~` to go home; `ctrl+l` to type a path directly (tab completes filenames)
 - `s` cycles sort order per pane: name → size → date → extension
 - `m<key>` sets a named mark on the current directory; `'<key>` jumps back to it instantly (session-scoped)
 - `ctrl+f` opens a recursive file search overlay — backed by `fd` (or `find` as fallback), live fuzzy filtering as you type
 
 **Preview pane**
 - `p` toggles a third panel: syntax-highlighted code via Chroma, rendered Markdown via Glamour, file metadata for everything else
-- Images rendered as pixel-art in the terminal via [chafa](https://hpjansson.org/chafa/) when installed (`brew install chafa`); falls back to file metadata otherwise
+- Images render as a metadata card — format, dimensions, size, modified time, plus a procedurally-generated tile colored from the image's own pixels. Works over SFTP. Works on any terminal. No external binaries.
 - Scrollable with `]` / `[`; inline search with `/` (`n`/`N` to cycle matches)
 - Loads asynchronously — the pane spinner tells you it's working
 
@@ -53,6 +53,7 @@ Dual-pane TUI file manager. Local filesystem. SFTP remotes. Tailscale nodes. Arc
 - File-level status glyphs inline in the file list: `M` modified · `A` staged · `D` deleted · `?` untracked
 - Branch indicator (`⎇ main`) in the status bar when inside a git repo
 - Non-blocking — fetched async with a 5 s cache; invisible outside git repos and on remote panes
+- Previewing a modified or staged file shows its `git diff` instead of the file body — additions green, deletions red, hunk headers blue
 
 **Status bar**
 - Breadcrumb path with `›` separators, home-dir compressed to `~`
@@ -106,17 +107,6 @@ go build -o pelorus .
 ```
 
 No CGO. No runtime dependencies. One binary.
-
-### Optional: image preview
-
-Install [chafa](https://hpjansson.org/chafa/) to render images in the preview pane:
-
-```bash
-brew install chafa          # macOS
-sudo apt install chafa      # Debian/Ubuntu
-```
-
-Without chafa, pelorus shows file metadata for images instead — everything else works fine.
 
 ---
 
@@ -230,7 +220,7 @@ Template variables: `{path}` full path, `{name}` filename, `{dir}` containing di
 | Styling | [Lipgloss](https://github.com/charmbracelet/lipgloss) |
 | Syntax highlighting | [Chroma](https://github.com/alecthomas/chroma) |
 | Markdown rendering | [Glamour](https://github.com/charmbracelet/glamour) |
-| Image preview | [chafa](https://hpjansson.org/chafa/) (optional, auto-detected) |
+| Image preview | Metadata card · `image/*` stdlib decoders + `golang.org/x/image` · sampled-pixel accent color |
 | Fuzzy matching | [sahilm/fuzzy](https://github.com/sahilm/fuzzy) — in-process, no fzf binary |
 | SFTP | [pkg/sftp](https://github.com/pkg/sftp) + [x/crypto/ssh](https://golang.org/x/crypto) |
 | Tailscale | [tailscale.com/client/tailscale](https://pkg.go.dev/tailscale.com/client/tailscale) local socket |
@@ -253,7 +243,7 @@ Pelorus steals thoughtfully from:
 | [Marta](https://marta.sh) | Action palette as spine, dual pane as default, archive-as-directory, job queue |
 | [ranger](https://github.com/ranger/ranger) | Shell integration (`S`), run-command (`!`), marks (`m`/`'`) |
 | [lf](https://github.com/gokcehan/lf) | Async IO pattern, nav/eval/ui separation |
-| [yazi](https://github.com/sxyazi/yazi) | Fuzzy-everywhere as interaction model, preview depth, chafa image rendering |
+| [yazi](https://github.com/sxyazi/yazi) | Fuzzy-everywhere as interaction model, preview depth |
 | [zoxide](https://github.com/ajeetdsouza/zoxide) | Auto-ranked jump list |
 
 ---

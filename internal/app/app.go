@@ -36,6 +36,7 @@ import (
 	sftpprov "github.com/mogglemoss/pelorus/internal/provider/sftp"
 	"github.com/mogglemoss/pelorus/internal/search"
 	"github.com/mogglemoss/pelorus/internal/theme"
+	"github.com/mogglemoss/pelorus/internal/version"
 	"github.com/mogglemoss/pelorus/pkg/fileinfo"
 )
 
@@ -98,6 +99,10 @@ type Model struct {
 	huhDeleteItems []fileinfo.FileInfo
 	huhInputValue  string // rename / new-file / new-dir single-input overlays
 
+	// Quick info modal (file.info / i).
+	quickInfoOpen bool
+	quickInfoItem *fileinfo.FileInfo
+
 	// Session marks: m<key> to set, '<key> to jump.
 	marks       map[rune]string // key → path
 	markPending bool            // true = waiting for mark key
@@ -125,8 +130,10 @@ type Model struct {
 	cmdPromptOpen  bool
 	cmdPromptInput textinput.Model
 
-	statusMsg string // transient message shown in status bar
-	gitBranch string // current git branch for active pane's repo
+	statusMsg      string    // transient message shown in status bar
+	statusLast     string    // last-seen statusMsg (for change detection)
+	statusChanged  time.Time // wall time when statusMsg last changed
+	gitBranch      string    // current git branch for active pane's repo
 
 	// Mascot animation state.
 	mascotFrame    int
@@ -221,6 +228,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		return m, m.handleMouse(msg)
+	}
+
+	// Quick-info modal: any key closes it.
+	if m.quickInfoOpen {
+		if _, ok := msg.(tea.KeyMsg); ok {
+			m.quickInfoOpen = false
+			m.quickInfoItem = nil
+			return m, nil
+		}
 	}
 
 	// Route all messages to Huh overlay when active.
@@ -391,6 +407,50 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case actions.ShowVersionMsg:
+		m.statusMsg = version.Full()
+		return m, nil
+
+	case actions.DuplicateSelectedMsg:
+		return m, m.executeDuplicate()
+
+	case actions.SymlinkSelectedMsg:
+		return m, m.executeSymlink()
+
+	case actions.ExtractArchiveMsg:
+		return m, m.executeExtract()
+
+	case actions.ChmodSelectedMsg:
+		return m, m.openChmodForm()
+
+	case actions.QuickInfoMsg:
+		m.openQuickInfo()
+		return m, nil
+
+	case actions.SelectByGlobMsg:
+		return m, m.openGlobSelectForm()
+
+	case actions.CalcDirSizeMsg:
+		return m, m.calcDirSize()
+
+	case dirSizeDoneMsg:
+		if msg.err != nil {
+			m.statusMsg = "dir size: " + msg.err.Error()
+		} else {
+			m.statusMsg = fmt.Sprintf("%s: %s (%d items)", msg.name, fileinfo.HumanSize(msg.size), msg.count)
+		}
+		return m, nil
+
+	case extractDoneMsg:
+		if msg.err != nil {
+			m.statusMsg = "Extract failed: " + msg.err.Error()
+			return m, nil
+		}
+		m.statusMsg = "Extracted to " + filepath.Base(msg.dest)
+		m.inactiveP().Reload()
+		m.updateWatchers()
+		return m, nil
+
 	case actions.ResizeSplitMsg:
 		if m.showPreview {
 			return m, nil // resize not applicable in three-pane mode
@@ -557,14 +617,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		f := huh.NewForm(huh.NewGroup(
 			huh.NewInput().
 				Title("New File").
+				Description("Nested paths allowed (e.g. sub/dir/file.txt)").
 				Placeholder("filename").
 				Value(&m.huhInputValue).
 				Validate(func(s string) error {
-					if strings.TrimSpace(s) == "" {
+					s = strings.TrimSpace(s)
+					if s == "" {
 						return fmt.Errorf("name cannot be empty")
 					}
-					if strings.Contains(s, "/") {
-						return fmt.Errorf("name cannot contain /")
+					if strings.HasPrefix(s, "/") {
+						return fmt.Errorf("absolute paths not allowed")
 					}
 					return nil
 				}),
@@ -578,14 +640,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		f := huh.NewForm(huh.NewGroup(
 			huh.NewInput().
 				Title("New Directory").
+				Description("Nested paths allowed (e.g. sub/dir)").
 				Placeholder("dirname").
 				Value(&m.huhInputValue).
 				Validate(func(s string) error {
-					if strings.TrimSpace(s) == "" {
+					s = strings.TrimSpace(s)
+					if s == "" {
 						return fmt.Errorf("name cannot be empty")
 					}
-					if strings.Contains(s, "/") {
-						return fmt.Errorf("name cannot contain /")
+					if strings.HasPrefix(s, "/") {
+						return fmt.Errorf("absolute paths not allowed")
 					}
 					return nil
 				}),
@@ -787,6 +851,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// from aliasing with the active cycle when a task starts.
 			m.mascotActive = false
 			m.mascotFrame = (m.mascotFrame + 1) % 48
+		}
+		// Status-bar auto-dismiss: track when statusMsg changed, clear after 4s.
+		// Never expire active-work markers ("Copying…", "Moving…", "Deleting…",
+		// "Trashing…") while the queue is actually busy.
+		if m.statusMsg != m.statusLast {
+			m.statusLast = m.statusMsg
+			m.statusChanged = time.Now()
+		} else if m.statusMsg != "" && time.Since(m.statusChanged) > 4*time.Second {
+			m.statusMsg = ""
+			m.statusLast = ""
 		}
 		return m, mascot.Tick()
 
@@ -1176,7 +1250,8 @@ func (m *Model) updatePreview() tea.Cmd {
 		m.previewModel.SetContent(preview.ContentReadyMsg{})
 		return nil
 	}
-	return m.previewModel.SetFile(sel)
+	glyph := m.activeP().GitStatus[sel.Path]
+	return m.previewModel.SetFileWithGit(sel, glyph)
 }
 
 // updateGitStatus triggers async git status fetch for the active pane's directory.
@@ -1710,7 +1785,7 @@ func (m *Model) View() string {
 		screen = overlayCenter(screen, searchView, m.width, m.height)
 	}
 
-	// Overlay Huh form (delete confirm, rename, new file/dir) if active.
+	// Overlay Huh form (delete confirm, rename, new file/dir, chmod, glob) if active.
 	if m.huhOverlay != nil {
 		label := "Confirm"
 		switch m.huhMode {
@@ -1722,6 +1797,10 @@ func (m *Model) View() string {
 			label = "New File"
 		case "new-dir":
 			label = "New Directory"
+		case "chmod":
+			label = "Permissions"
+		case "glob-select":
+			label = "Select by Pattern"
 		}
 		header := m.theme.PaletteSelected.Render("  " + label + "  ")
 		body := lipgloss.JoinVertical(lipgloss.Left, header, "", m.huhOverlay.View())
@@ -1729,7 +1808,32 @@ func (m *Model) View() string {
 		screen = overlayCenter(screen, box, m.width, m.height)
 	}
 
+	// Overlay quick-info modal if active.
+	if m.quickInfoOpen && m.quickInfoItem != nil {
+		box := m.renderQuickInfo()
+		screen = overlayCenter(screen, box, m.width, m.height)
+	}
+
 	return screen
+}
+
+// renderQuickInfo renders a centered rich info card for the current selection.
+// Reuses the preview InfoCard renderer so styling matches the right pane's
+// fallback cards.
+func (m *Model) renderQuickInfo() string {
+	fi := m.quickInfoItem
+	if fi == nil {
+		return ""
+	}
+	boxW := 64
+	if m.width > 0 && boxW > m.width-4 {
+		boxW = m.width - 4
+	}
+	card := preview.InfoCardFor(fi, boxW-4, m.theme)
+	title := m.theme.PaletteSelected.Render("  Info  ")
+	hint := m.theme.PaletteItem.Copy().Faint(true).Render("  any key closes  ")
+	body := lipgloss.JoinVertical(lipgloss.Left, title, "", card, "", hint)
+	return m.theme.PaletteBox.Width(boxW).Render(body)
 }
 
 // renderHeader builds the branded header bar (3 rows).
@@ -1782,7 +1886,6 @@ func (m *Model) renderHeader() string {
 	hdrFgAccent := lipgloss.NewStyle().Background(lipgloss.Color(hdrBg)).Foreground(m.theme.StatusBarAccent.GetForeground())
 	hdrFgMuted := lipgloss.NewStyle().Background(lipgloss.Color(hdrBg)).Foreground(m.theme.StatusBarMuted.GetForeground())
 
-	pathPart := hdrFgAccent.Render(" " + breadcrumb)
 	gitPart := ""
 	if m.gitBranch != "" {
 		gitPart = hdrFgMuted.Render("  ⎇ " + m.gitBranch)
@@ -1791,7 +1894,26 @@ func (m *Model) renderHeader() string {
 	if breadW2 < 4 {
 		breadW2 = 4
 	}
-	usedW := lipgloss.Width(pathPart) + lipgloss.Width(gitPart)
+	// Budget the breadcrumb to what remains after the git branch, with a small
+	// margin so it never touches the mascot. Left-truncate with an ellipsis so
+	// the *current directory* stays visible (what you care about) rather than
+	// the leading "/Users/..." (which you don't).
+	gitW := lipgloss.Width(gitPart)
+	pathBudget := breadW2 - gitW - 1 // leave 1-col gap before mascot
+	if pathBudget < 4 {
+		pathBudget = 4
+	}
+	breadText := " " + breadcrumb
+	if lipgloss.Width(breadText) > pathBudget {
+		// Drop runes from the front until we fit, then prepend an ellipsis.
+		runes := []rune(breadText)
+		for len(runes) > 1 && lipgloss.Width("…"+string(runes)) > pathBudget {
+			runes = runes[1:]
+		}
+		breadText = "…" + string(runes)
+	}
+	pathPart := hdrFgAccent.Render(breadText)
+	usedW := lipgloss.Width(pathPart) + gitW
 	padW := breadW2 - usedW
 	if padW < 0 {
 		padW = 0
@@ -1836,9 +1958,20 @@ func (m *Model) renderFooter() string {
 		return lipgloss.JoinHorizontal(lipgloss.Top, prompt, input)
 	}
 
-	// Transient status message.
+	// Transient status message: when the message is short, render it as a
+	// compact right-aligned toast alongside the shortcut bar; when long or on
+	// narrow terminals, fall back to the full-width takeover.
+	toast := ""
+	toastW := 0
 	if m.statusMsg != "" {
-		return m.theme.StatusBar.Width(m.width).Render(" " + m.statusMsg)
+		raw := " " + m.statusMsg + " "
+		w := lipgloss.Width(raw)
+		// Full-width takeover if message is too long or terminal too narrow.
+		if w > m.width/2 || m.width < 60 {
+			return m.theme.StatusBar.Width(m.width).Render(" " + m.statusMsg)
+		}
+		toast = m.theme.StatusBarAccent.Copy().Bold(true).Render(raw)
+		toastW = w
 	}
 
 	// Build the shortcut list. Always-present shortcuts first, then context
@@ -1884,9 +2017,10 @@ func (m *Model) renderFooter() string {
 		totalW += w
 	}
 
-	// Distribute remaining space as gaps between items.
+	// Distribute remaining space as gaps between items. Reserve room for the
+	// compact toast if one is active.
 	gaps := len(shortcuts) - 1
-	extraW := m.width - totalW
+	extraW := m.width - totalW - toastW
 	if extraW < 0 {
 		extraW = 0
 	}
@@ -1911,7 +2045,8 @@ func (m *Model) renderFooter() string {
 		if m.footerHoverIdx == i {
 			rendered = m.theme.FooterHover.Render(keyText + descText)
 		} else {
-			rendered = m.theme.FooterKey.Render(keyText) + m.theme.FooterDesc.Render(descText)
+			// Key chip bolded for glanceability; description stays muted.
+			rendered = m.theme.FooterKey.Copy().Bold(true).Render(keyText) + m.theme.FooterDesc.Render(descText)
 		}
 		sb.WriteString(rendered)
 		newItems[i] = footerItem{startX: x, endX: x + p.width - 1, actionID: sc.actionID}
@@ -1924,9 +2059,13 @@ func (m *Model) renderFooter() string {
 		}
 	}
 
-	// Fill any remaining space.
-	if x < m.width {
-		sb.WriteString(baseBg.Width(m.width - x).Render(""))
+	// Fill any remaining space (reserving room for the toast).
+	remaining := m.width - x - toastW
+	if remaining > 0 {
+		sb.WriteString(baseBg.Width(remaining).Render(""))
+	}
+	if toastW > 0 {
+		sb.WriteString(toast)
 	}
 
 	// Cache items for mouse hit-testing.
@@ -1950,6 +2089,10 @@ func (m *Model) onHuhComplete() tea.Cmd {
 		return m.executeNewFile(m.huhInputValue)
 	case "new-dir":
 		return m.executeNewDir(m.huhInputValue)
+	case "chmod":
+		return m.executeChmod(m.huhInputValue)
+	case "glob-select":
+		return m.executeGlobSelect(m.huhInputValue)
 	}
 	return nil
 }
@@ -1981,6 +2124,15 @@ func (m *Model) executeRename(newName string) tea.Cmd {
 		return nil
 	}
 	dst := filepath.Join(ap.Path, newName)
+	// Overwrite guard: if a different entry exists at the destination, refuse
+	// the rename with a clear message. Users can delete the target first or
+	// pick a new name.
+	if dst != sel.Path {
+		if _, err := os.Lstat(dst); err == nil {
+			m.statusMsg = fmt.Sprintf("Rename aborted: %q already exists", newName)
+			return nil
+		}
+	}
 	if err := ap.Provider.Rename(sel.Path, dst); err != nil {
 		m.statusMsg = "Rename failed: " + err.Error()
 		return nil
@@ -1997,6 +2149,19 @@ func (m *Model) executeNewFile(name string) tea.Cmd {
 	}
 	ap := m.activeP()
 	target := filepath.Join(ap.Path, name)
+	// Create any intermediate directories (mkdir -p semantics) so "sub/dir/file.txt"
+	// works out of the box. Provider.MakeDir is used so the behavior carries over
+	// to remote providers.
+	if parent := filepath.Dir(target); parent != ap.Path && parent != "." {
+		if err := ap.Provider.MakeDir(parent); err != nil {
+			m.statusMsg = "Create failed: " + err.Error()
+			return nil
+		}
+	}
+	if _, err := os.Lstat(target); err == nil {
+		m.statusMsg = fmt.Sprintf("Create aborted: %q already exists", name)
+		return nil
+	}
 	f, err := os.Create(target)
 	if err != nil {
 		m.statusMsg = "Create failed: " + err.Error()
@@ -2014,7 +2179,10 @@ func (m *Model) executeNewDir(name string) tea.Cmd {
 		return nil
 	}
 	ap := m.activeP()
-	if err := ap.Provider.MakeDir(filepath.Join(ap.Path, name)); err != nil {
+	target := filepath.Join(ap.Path, name)
+	// Provider.MakeDir is expected to mkdir-p; if it doesn't, nested paths
+	// will fail with a clearer error than before.
+	if err := ap.Provider.MakeDir(target); err != nil {
 		m.statusMsg = "MakeDir failed: " + err.Error()
 		return nil
 	}

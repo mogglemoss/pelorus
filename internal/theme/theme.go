@@ -51,6 +51,72 @@ type Theme struct {
 
 	// MascotStyle is the foreground color applied to the mascot ASCII art.
 	MascotStyle lipgloss.Style
+
+	// Card semantic styles (used by internal/preview fallback cards). These
+	// give themes control over card colour rather than hardcoded Catppuccin
+	// hex. Any theme that leaves these unset will produce all-white cards —
+	// every Theme constructor should populate them.
+	CardLabel   lipgloss.Style // label column text (dim)
+	CardDim     lipgloss.Style // absent perm bits, size-bar unfilled
+	CardSuccess lipgloss.Style // green: exec bit, small size, fresh age
+	CardWarning lipgloss.Style // yellow: write bit, medium size/age
+	CardDanger  lipgloss.Style // red: large size, stale age, broken symlink
+	CardInfo    lipgloss.Style // blue: read bit
+	CardAccent  lipgloss.Style // theme accent for arrows & highlights
+
+	// PaletteCategoryHeader styles the uppercase category dividers inside the
+	// command palette and help overlay. Derived from the theme accent at load.
+	PaletteCategoryHeader lipgloss.Style
+}
+
+// Package-level semantic colour styles for card rendering. These are the
+// defaults applied by the darkCards() / lightCards() helpers below. Themes
+// that want to customise any field may override after calling the helper.
+var (
+	darkCardLabel   = lipgloss.NewStyle().Foreground(lipgloss.Color("#7f8896"))
+	darkCardDim     = lipgloss.NewStyle().Foreground(lipgloss.Color("#3b4252"))
+	darkCardSuccess = lipgloss.NewStyle().Foreground(lipgloss.Color("#a3be8c"))
+	darkCardWarning = lipgloss.NewStyle().Foreground(lipgloss.Color("#ebcb8b"))
+	darkCardDanger  = lipgloss.NewStyle().Foreground(lipgloss.Color("#bf616a"))
+	darkCardInfo    = lipgloss.NewStyle().Foreground(lipgloss.Color("#81a1c1"))
+
+	lightCardLabel   = lipgloss.NewStyle().Foreground(lipgloss.Color("#586e75"))
+	lightCardDim     = lipgloss.NewStyle().Foreground(lipgloss.Color("#b8c5cc"))
+	lightCardSuccess = lipgloss.NewStyle().Foreground(lipgloss.Color("#237a23"))
+	lightCardWarning = lipgloss.NewStyle().Foreground(lipgloss.Color("#9a6700"))
+	lightCardDanger  = lipgloss.NewStyle().Foreground(lipgloss.Color("#b0222f"))
+	lightCardInfo    = lipgloss.NewStyle().Foreground(lipgloss.Color("#1c5488"))
+)
+
+// applyDarkCards sets the 7 Card fields on a dark theme using the shared
+// dark palette + the theme's accent colour.
+func applyDarkCards(t *Theme, accent string) {
+	t.CardLabel = darkCardLabel
+	t.CardDim = darkCardDim
+	t.CardSuccess = darkCardSuccess
+	t.CardWarning = darkCardWarning
+	t.CardDanger = darkCardDanger
+	t.CardInfo = darkCardInfo
+	t.CardAccent = lipgloss.NewStyle().Foreground(lipgloss.Color(accent))
+	t.PaletteCategoryHeader = lipgloss.NewStyle().
+		Foreground(lipgloss.Color(accent)).
+		Background(t.PaletteBox.GetBackground()).
+		Bold(true)
+}
+
+// applyLightCards sets the 7 Card fields for light themes.
+func applyLightCards(t *Theme, accent string) {
+	t.CardLabel = lightCardLabel
+	t.CardDim = lightCardDim
+	t.CardSuccess = lightCardSuccess
+	t.CardWarning = lightCardWarning
+	t.CardDanger = lightCardDanger
+	t.CardInfo = lightCardInfo
+	t.CardAccent = lipgloss.NewStyle().Foreground(lipgloss.Color(accent))
+	t.PaletteCategoryHeader = lipgloss.NewStyle().
+		Foreground(lipgloss.Color(accent)).
+		Background(t.PaletteBox.GetBackground()).
+		Bold(true)
 }
 
 // Get returns the named theme, defaulting to pelorus.
@@ -64,32 +130,55 @@ type Theme struct {
 // Setting theme = "omarchy" in config forces the Omarchy loader without
 // falling back to the pelorus default when omarchy is not detected.
 func Get(name string) Theme {
-	switch strings.ToLower(name) {
+	var t Theme
+	n := strings.ToLower(name)
+	switch n {
 	case "gruvbox":
-		return GruvboxTheme()
+		t = GruvboxTheme()
 	case "nord":
-		return NordTheme()
+		t = NordTheme()
 	case "light":
-		return LightTheme()
+		t = LightTheme()
 	case "dracula":
-		return DraculaTheme()
+		t = DraculaTheme()
 	case "catppuccin":
-		return CatppuccinTheme()
+		t = CatppuccinTheme()
 	case "haruspex":
-		return HaruspexTheme()
+		t = HaruspexTheme()
+	case "pelorus":
+		t = PelorusTheme()
 	case "omarchy":
-		// Explicit opt-in: dynamic if available, static Catppuccin Mocha otherwise.
-		if t, ok := LoadOmarchyTheme(); ok {
-			return t
+		if ot, ok := LoadOmarchyTheme(); ok {
+			t = ot
+		} else {
+			t = CatppuccinTheme()
 		}
-		return CatppuccinTheme()
 	default:
-		// Auto-detect: if running inside Omarchy, inherit the system palette.
-		if t, ok := LoadOmarchyTheme(); ok {
-			return t
+		if ot, ok := LoadOmarchyTheme(); ok {
+			t = ot
+		} else {
+			t = HaruspexTheme()
 		}
-		return HaruspexTheme()
 	}
+	// Populate Card* semantic styles from the theme's existing accent so
+	// previews/fallback cards colour-match the active theme.
+	accent := extractAccent(t)
+	if n == "light" {
+		applyLightCards(&t, accent)
+	} else {
+		applyDarkCards(&t, accent)
+	}
+	return t
+}
+
+// extractAccent returns the theme's primary accent colour as a hex string,
+// derived from MascotStyle (which every theme sets to its accent). Falls back
+// to a safe neutral if the style doesn't have a typed color.
+func extractAccent(t Theme) string {
+	if c, ok := t.MascotStyle.GetForeground().(lipgloss.Color); ok {
+		return string(c)
+	}
+	return "#888888"
 }
 
 // ---------------------------------------------------------------------------

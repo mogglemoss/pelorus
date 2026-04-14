@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -49,6 +50,10 @@ type Model struct {
 
 	// Multi-select: set of selected paths.
 	MultiSel map[string]bool
+
+	// MarkFlash briefly highlights the last-toggled multi-select row.
+	MarkFlashPath string
+	MarkFlashTime time.Time
 
 	// SortMode controls entry ordering.
 	SortMode nav.SortMode
@@ -178,6 +183,8 @@ func (m *Model) Update(msg tea.Msg) (*Model, tea.Cmd) {
 			case tea.KeyEsc:
 				m.Mode = ModeNormal
 				m.Input.Blur()
+			case tea.KeyTab:
+				m.completeGotoPath()
 			default:
 				m.Input, cmd = m.Input.Update(msg)
 			}
@@ -425,6 +432,71 @@ func (m *Model) StartGotoPath() {
 	m.Input.CursorEnd()
 }
 
+// completeGotoPath extends the goto-path input by finding directory entries
+// matching the current basename prefix. One match → extend to full name (with
+// trailing "/" for dirs). Multiple matches → extend to the longest common
+// prefix. Zero matches → no-op. Filesystem-backed, case-sensitive, local only
+// (Goto-path itself is local-only).
+func (m *Model) completeGotoPath() {
+	raw := m.Input.Value()
+	expanded := expandPath(raw)
+	dir, prefix := filepath.Split(expanded)
+	if dir == "" {
+		dir = "."
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	var matches []string
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, prefix) {
+			if e.IsDir() {
+				name += "/"
+			}
+			matches = append(matches, name)
+		}
+	}
+	if len(matches) == 0 {
+		return
+	}
+
+	var completion string
+	if len(matches) == 1 {
+		completion = matches[0]
+	} else {
+		completion = longestCommonPrefix(matches)
+		if completion == prefix {
+			return // nothing to extend
+		}
+	}
+
+	// Preserve what the user typed before the basename (preserves ~, $VAR, etc.
+	// by re-attaching the completion to the un-expanded prefix slice).
+	rawDir, _ := filepath.Split(raw)
+	m.Input.SetValue(rawDir + completion)
+	m.Input.CursorEnd()
+}
+
+func longestCommonPrefix(ss []string) string {
+	if len(ss) == 0 {
+		return ""
+	}
+	p := ss[0]
+	for _, s := range ss[1:] {
+		n := 0
+		for n < len(p) && n < len(s) && p[n] == s[n] {
+			n++
+		}
+		p = p[:n]
+		if p == "" {
+			break
+		}
+	}
+	return p
+}
+
 func (m *Model) GoHome() {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -449,6 +521,8 @@ func (m *Model) ToggleSelection() {
 	} else {
 		m.MultiSel[sel.Path] = true
 	}
+	m.MarkFlashPath = sel.Path
+	m.MarkFlashTime = time.Now()
 }
 
 // SelectedEntries returns the multi-selected entries, or the cursor entry if
@@ -569,11 +643,45 @@ func (m *Model) View() string {
 	}
 	// Build path header line. If a section label is set, right-align it so the
 	// path gets full left-priority truncation and label stays out of the way.
+	//
+	// Multi-select badge: " [n] " when any files are marked. Right-aligned, takes
+	// priority over Label width-wise.
+	badgeStr := ""
+	if n := len(m.MultiSel); n > 0 {
+		badgeStr = m.Theme.CardAccent.Copy().Bold(true).Render(fmt.Sprintf(" ✓%d ", n))
+	}
+	badgeW := lipgloss.Width(badgeStr)
+
+	// Render the path with the final breadcrumb segment accented so the "current
+	// directory" pops visually. Only applied for active panes; inactive panes
+	// keep the muted tone to reduce visual noise.
+	renderPath := func(s string, w int) string {
+		if !m.IsActive || w < 4 {
+			return pathStyle.Width(w).Render(s)
+		}
+		idx := strings.LastIndex(s, "/")
+		if idx < 0 || idx == len(s)-1 {
+			return pathStyle.Width(w).Render(s)
+		}
+		head := s[:idx+1]
+		tail := s[idx+1:]
+		accent := pathStyle.Copy().Bold(true)
+		headRender := pathStyle.Render(head)
+		tailRender := accent.Render(tail)
+		combined := headRender + tailRender
+		// Pad to full width.
+		pad := w - lipgloss.Width(combined)
+		if pad > 0 {
+			combined += pathStyle.Render(strings.Repeat(" ", pad))
+		}
+		return combined
+	}
+
 	var header string
 	if m.Label != "" {
 		labelStr := m.Theme.SectionLabel.Render(m.Label)
 		labelW := lipgloss.Width(labelStr)
-		pathW := innerW - labelW - 1
+		pathW := innerW - labelW - 1 - badgeW
 		if pathW < 4 {
 			pathW = 4
 		}
@@ -581,9 +689,17 @@ func (m *Model) View() string {
 		if len(truncated) > pathW {
 			truncated = "…" + truncated[len(truncated)-pathW+1:]
 		}
-		header = pathStyle.Width(pathW).Render(truncated) + " " + labelStr
+		header = renderPath(truncated, pathW) + " " + labelStr + badgeStr
 	} else {
-		header = pathStyle.Width(innerW).Render(pathDisplay)
+		pathW := innerW - badgeW
+		if pathW < 4 {
+			pathW = 4
+		}
+		truncated := pathDisplay
+		if len(truncated) > pathW {
+			truncated = "…" + truncated[len(truncated)-pathW+1:]
+		}
+		header = renderPath(truncated, pathW) + badgeStr
 	}
 	sb.WriteString(header)
 	sb.WriteString("\n")
@@ -627,16 +743,68 @@ func (m *Model) View() string {
 		startIdx = m.Cursor - listH + 1
 	}
 
-	for i := startIdx; i < startIdx+listH; i++ {
-		if i >= len(m.Filtered) {
-			sb.WriteString(strings.Repeat(" ", innerW))
-			sb.WriteString("\n")
-			continue
+	// Empty-directory state: render centered ASCII art in place of rows.
+	if len(m.Filtered) == 0 {
+		emptyArt := []string{
+			"",
+			"     · · ·     ",
+			"    ╭─────╮    ",
+			"    │     │    ",
+			"    │  ∅  │    ",
+			"    │     │    ",
+			"    ╰─────╯    ",
+			"",
 		}
-		fi := m.Filtered[i]
-		row := m.renderEntry(fi, i == m.Cursor, innerW)
-		sb.WriteString(row)
-		sb.WriteString("\n")
+		msg := "empty"
+		if m.FilterStr != "" {
+			msg = "no matches"
+		}
+		dim := m.Theme.FileName.Copy().Faint(true)
+		padTop := (listH - len(emptyArt) - 1) / 2
+		if padTop < 0 {
+			padTop = 0
+		}
+		for i := 0; i < listH; i++ {
+			if i < padTop {
+				sb.WriteString(strings.Repeat(" ", innerW))
+			} else if i-padTop < len(emptyArt) {
+				line := emptyArt[i-padTop]
+				pad := innerW - lipgloss.Width(line)
+				if pad < 0 {
+					pad = 0
+				}
+				left := pad / 2
+				right := pad - left
+				sb.WriteString(strings.Repeat(" ", left))
+				sb.WriteString(dim.Render(line))
+				sb.WriteString(strings.Repeat(" ", right))
+			} else if i-padTop == len(emptyArt) {
+				pad := innerW - lipgloss.Width(msg)
+				if pad < 0 {
+					pad = 0
+				}
+				left := pad / 2
+				right := pad - left
+				sb.WriteString(strings.Repeat(" ", left))
+				sb.WriteString(dim.Render(msg))
+				sb.WriteString(strings.Repeat(" ", right))
+			} else {
+				sb.WriteString(strings.Repeat(" ", innerW))
+			}
+			sb.WriteString("\n")
+		}
+	} else {
+		for i := startIdx; i < startIdx+listH; i++ {
+			if i >= len(m.Filtered) {
+				sb.WriteString(strings.Repeat(" ", innerW))
+				sb.WriteString("\n")
+				continue
+			}
+			fi := m.Filtered[i]
+			row := m.renderEntry(fi, i == m.Cursor, innerW)
+			sb.WriteString(row)
+			sb.WriteString("\n")
+		}
 	}
 
 	content := sb.String()
@@ -720,6 +888,14 @@ func (m *Model) renderEntry(fi fileinfo.FileInfo, selected bool, width int) stri
 		style = m.Theme.DirName
 	} else {
 		style = m.Theme.FileName
+	}
+
+	// Mark-flash: briefly bold-highlight the row that was just toggled. The
+	// mascot tick (every 550ms) will re-render, so the flash fades naturally
+	// when time.Since exceeds the threshold.
+	flashing := m.MarkFlashPath == fi.Path && !m.MarkFlashTime.IsZero() && time.Since(m.MarkFlashTime) < 500*time.Millisecond
+	if flashing && !selected {
+		style = style.Copy().Bold(true).Reverse(true)
 	}
 
 	var rendered string

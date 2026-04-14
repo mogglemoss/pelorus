@@ -17,6 +17,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/mogglemoss/pelorus/internal/theme"
 	"github.com/mogglemoss/pelorus/pkg/fileinfo"
 )
 
@@ -180,25 +181,22 @@ func buildCard(tile string, rows []string) string {
 
 // --- Row builders --------------------------------------------------------
 
-var (
-	lblStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#777777"))
-	valStyle = lipgloss.NewStyle().Bold(true)
-)
+var valStyle = lipgloss.NewStyle().Bold(true)
 
 // row formats a label + value pair with consistent padding.
-func row(label, value string) string {
+func row(t *theme.Theme, label, value string) string {
 	const labelW = 10
 	// Pad label to fixed width so values align.
 	if len(label) < labelW {
 		label = label + strings.Repeat(" ", labelW-len(label))
 	}
-	return lblStyle.Render(label) + valStyle.Render(value)
+	return t.CardLabel.Render(label) + valStyle.Render(value)
 }
 
 // permsRow renders unix permission bits with colored rwx glyphs.
 //
-//	rwx r-x r-- — green x's for exec, dim dash for absent bits.
-func permsRow(mode os.FileMode) string {
+//	rwx r-x r-- — semantic colours from the active theme.
+func permsRow(t *theme.Theme, mode os.FileMode) string {
 	perms := mode.Perm()
 	bits := [9]rune{
 		'r', 'w', 'x', // owner
@@ -207,36 +205,31 @@ func permsRow(mode os.FileMode) string {
 	}
 	mask := []os.FileMode{0400, 0200, 0100, 0040, 0020, 0010, 0004, 0002, 0001}
 
-	read := lipgloss.NewStyle().Foreground(lipgloss.Color("#89b4fa"))
-	write := lipgloss.NewStyle().Foreground(lipgloss.Color("#f9e2af"))
-	exec := lipgloss.NewStyle().Foreground(lipgloss.Color("#a6e3a1"))
-	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#45475a"))
-
 	var sb strings.Builder
 	for i := 0; i < 9; i++ {
 		ch := string(bits[i])
 		if perms&mask[i] != 0 {
 			switch i % 3 {
 			case 0:
-				sb.WriteString(read.Render(ch))
+				sb.WriteString(t.CardInfo.Render(ch))
 			case 1:
-				sb.WriteString(write.Render(ch))
+				sb.WriteString(t.CardWarning.Render(ch))
 			case 2:
-				sb.WriteString(exec.Render(ch))
+				sb.WriteString(t.CardSuccess.Render(ch))
 			}
 		} else {
-			sb.WriteString(dim.Render("-"))
+			sb.WriteString(t.CardDim.Render("-"))
 		}
 		if i == 2 || i == 5 {
 			sb.WriteRune(' ')
 		}
 	}
-	return lblStyle.Render("perms     ") + sb.String()
+	return t.CardLabel.Render("perms     ") + sb.String()
 }
 
 // sizeBarRow renders a log-scaled horizontal bar showing file size magnitude.
 // Scale: 1 B → 1 GB mapped across barW chars.
-func sizeBarRow(size int64, barW int) string {
+func sizeBarRow(t *theme.Theme, size int64, barW int) string {
 	if barW < 4 {
 		barW = 4
 	}
@@ -258,46 +251,44 @@ func sizeBarRow(size int64, barW int) string {
 		filled = barW
 	}
 
-	// Colour the bar based on size magnitude: green (small) → yellow → red (large).
-	var barCol lipgloss.Color
+	// Colour the bar based on size magnitude: success (small) → warning → danger (large).
+	var on lipgloss.Style
 	switch {
 	case frac < 0.33:
-		barCol = "#a6e3a1"
+		on = t.CardSuccess
 	case frac < 0.66:
-		barCol = "#f9e2af"
+		on = t.CardWarning
 	default:
-		barCol = "#f38ba8"
+		on = t.CardDanger
 	}
-	on := lipgloss.NewStyle().Foreground(barCol)
-	off := lipgloss.NewStyle().Foreground(lipgloss.Color("#313244"))
-	bar := on.Render(strings.Repeat("━", filled)) + off.Render(strings.Repeat("━", barW-filled))
-	return lblStyle.Render("size      ") + valStyle.Render(fileinfo.HumanSize(size)) + "  " + bar
+	bar := on.Render(strings.Repeat("━", filled)) + t.CardDim.Render(strings.Repeat("━", barW-filled))
+	return t.CardLabel.Render("size      ") + valStyle.Render(fileinfo.HumanSize(size)) + "  " + bar
 }
 
 // ageRow renders mod time with a recency glyph.
-func ageRow(mod time.Time) string {
+func ageRow(t *theme.Theme, mod time.Time) string {
 	now := time.Now()
 	age := now.Sub(mod)
-	var glyph, col string
+	var glyph string
+	var style lipgloss.Style
 	switch {
 	case age < 24*time.Hour:
-		glyph, col = "◉", "#a6e3a1" // fresh
+		glyph, style = "◉", t.CardSuccess
 	case age < 7*24*time.Hour:
-		glyph, col = "◎", "#f9e2af" // recent
+		glyph, style = "◎", t.CardWarning
 	case age < 90*24*time.Hour:
-		glyph, col = "○", "#89b4fa" // aged
+		glyph, style = "○", t.CardInfo
 	default:
-		glyph, col = "◌", "#6c7086" // stale
+		glyph, style = "◌", t.CardDim
 	}
-	g := lipgloss.NewStyle().Foreground(lipgloss.Color(col)).Render(glyph)
-	return lblStyle.Render("modified  ") + valStyle.Render(mod.Format("2006-01-02 15:04")) + "  " + g
+	return t.CardLabel.Render("modified  ") + valStyle.Render(mod.Format("2006-01-02 15:04")) + "  " + style.Render(glyph)
 }
 
 // --- Top-level card renderers -------------------------------------------
 
 // renderImageCard renders a rich metadata card for image files, using the
 // sampled pixel colour (or hash fallback) for both the tile and accent.
-func renderImageCard(fi *fileinfo.FileInfo, path string, width int) (string, error) {
+func renderImageCard(fi *fileinfo.FileInfo, path string, width int, t *theme.Theme) (string, error) {
 	dimStr := "unknown"
 	if f, err := os.Open(path); err == nil {
 		if cfg, _, err2 := image.DecodeConfig(f); err2 == nil {
@@ -310,11 +301,11 @@ func renderImageCard(fi *fileinfo.FileInfo, path string, width int) (string, err
 	tile := buildArtistTile(fi.Name, fi.Size, classImage, col, width)
 
 	rows := []string{
-		row("type", classDescriptor(fi, classImage)),
-		row("dims", dimStr),
-		sizeBarRow(fi.Size, 16),
-		ageRow(fi.ModTime),
-		permsRow(fi.Mode),
+		row(t, "type", classDescriptor(fi, classImage)),
+		row(t, "dims", dimStr),
+		sizeBarRow(t, fi.Size, 16),
+		ageRow(t, fi.ModTime),
+		permsRow(t, fi.Mode),
 	}
 	return buildCard(tile, rows), nil
 }
@@ -322,26 +313,38 @@ func renderImageCard(fi *fileinfo.FileInfo, path string, width int) (string, err
 // renderInfoCard renders a metadata card for any non-image file that cannot
 // (or should not) be previewed directly: binaries, unreadable files, non-UTF8
 // content, or explicit fallback cases.
-func renderInfoCard(fi *fileinfo.FileInfo, width int) string {
+// InfoCardFor is the exported wrapper used by overlays (e.g. the app-level
+// quick-info modal) to render the same card the preview pane uses for
+// unpreviewable files.
+func InfoCardFor(fi *fileinfo.FileInfo, width int, t *theme.Theme) string {
+	return renderInfoCard(fi, width, t)
+}
+
+func renderInfoCard(fi *fileinfo.FileInfo, width int, t *theme.Theme) string {
 	cls := classifyFile(fi)
 	col := hashColor(fi.Name, fi.Size)
 	tile := buildArtistTile(fi.Name, fi.Size, cls, col, width)
 
 	rows := []string{
-		row("type", classDescriptor(fi, cls)),
-		sizeBarRow(fi.Size, 16),
-		ageRow(fi.ModTime),
-		permsRow(fi.Mode),
+		row(t, "type", classDescriptor(fi, cls)),
+		sizeBarRow(t, fi.Size, 16),
+		ageRow(t, fi.ModTime),
+		permsRow(t, fi.Mode),
 	}
 	return buildCard(tile, rows)
 }
 
 // renderSymlinkCard renders a card specifically for symlinks, showing the target.
-func renderSymlinkCard(fi *fileinfo.FileInfo, width int) string {
+func renderSymlinkCard(fi *fileinfo.FileInfo, width int, t *theme.Theme) string {
 	cls := classSymlink
 	var col lipgloss.Color
 	if fi.SymlinkBroken {
-		col = lipgloss.Color("#f38ba8") // red for broken
+		// Danger style fg for tile when broken.
+		if c, ok := t.CardDanger.GetForeground().(lipgloss.Color); ok {
+			col = c
+		} else {
+			col = hashColor(fi.Name, fi.Size)
+		}
 	} else {
 		col = hashColor(fi.Name, fi.Size)
 	}
@@ -352,22 +355,21 @@ func renderSymlinkCard(fi *fileinfo.FileInfo, width int) string {
 		target = "(unknown target)"
 	}
 	arrow := lipgloss.NewStyle().Foreground(col).Render(" → ")
-	targetLine := lblStyle.Render("target    ") + valStyle.Render(fi.Name) + arrow + valStyle.Render(target)
+	targetLine := t.CardLabel.Render("target    ") + valStyle.Render(fi.Name) + arrow + valStyle.Render(target)
 
-	status := "ok"
-	statusCol := lipgloss.Color("#a6e3a1")
+	var statusStyled string
 	if fi.SymlinkBroken {
-		status = "broken"
-		statusCol = lipgloss.Color("#f38ba8")
+		statusStyled = t.CardDanger.Bold(true).Render("broken")
+	} else {
+		statusStyled = t.CardSuccess.Bold(true).Render("ok")
 	}
-	statusStyled := lipgloss.NewStyle().Foreground(statusCol).Bold(true).Render(status)
 
 	rows := []string{
-		row("type", classDescriptor(fi, cls)),
+		row(t, "type", classDescriptor(fi, cls)),
 		targetLine,
-		lblStyle.Render("status    ") + statusStyled,
-		ageRow(fi.ModTime),
-		permsRow(fi.Mode),
+		t.CardLabel.Render("status    ") + statusStyled,
+		ageRow(t, fi.ModTime),
+		permsRow(t, fi.Mode),
 	}
 	return buildCard(tile, rows)
 }

@@ -28,6 +28,30 @@ type NewFileMsg struct{}
 // NewDirMsg tells the app to initiate new-directory creation.
 type NewDirMsg struct{}
 
+// DuplicateSelectedMsg duplicates the selected item(s) with a "copy" suffix.
+type DuplicateSelectedMsg struct{}
+
+// SymlinkSelectedMsg creates a symlink to the selected item in the other pane.
+type SymlinkSelectedMsg struct{}
+
+// ExtractArchiveMsg extracts the selected archive into the other pane.
+type ExtractArchiveMsg struct{}
+
+// ChmodSelectedMsg opens the chmod editor for the selected item.
+type ChmodSelectedMsg struct{}
+
+// QuickInfoMsg opens an info modal with rich metadata for the selected item.
+type QuickInfoMsg struct{}
+
+// SelectByGlobMsg prompts for a glob pattern and multi-selects matching items.
+type SelectByGlobMsg struct{}
+
+// CalcDirSizeMsg kicks off a recursive size calculation for the cursor directory.
+type CalcDirSizeMsg struct{}
+
+// ShowVersionMsg flashes the pelorus version in the status bar.
+type ShowVersionMsg struct{}
+
 // CopySelectedMsg tells the app to copy selected file to the other pane.
 type CopySelectedMsg struct{}
 
@@ -339,7 +363,7 @@ func RegisterBuiltins(r *Registry) {
 		{
 			ID:          "nav.goto",
 			Name:        "Go to Path",
-			Description: "Type a path to navigate to",
+			Description: "Type a path to navigate to (tab completes filenames)",
 			Category:    "Navigation",
 			Context:     CtxAlways,
 			Keybinding:  "ctrl+l",
@@ -577,6 +601,94 @@ func RegisterBuiltins(r *Registry) {
 			Keybinding:  "ctrl+d",
 			Handler: func(_ AppState) tea.Cmd {
 				return func() tea.Msg { return DisconnectMsg{} }
+			},
+		},
+		{
+			ID:          "file.duplicate",
+			Name:        "Duplicate",
+			Description: "Duplicate selected item in the same directory",
+			Category:    "File",
+			Context:     CtxFileSelected,
+			Keybinding:  "D",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return DuplicateSelectedMsg{} }
+			},
+		},
+		{
+			ID:          "file.symlink",
+			Name:        "Symlink to Other Pane",
+			Description: "Create a symbolic link to the selected item in the other pane",
+			Category:    "File",
+			Context:     CtxFileSelected,
+			Keybinding:  "L",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return SymlinkSelectedMsg{} }
+			},
+		},
+		{
+			ID:          "file.extract",
+			Name:        "Extract Archive",
+			Description: "Extract the selected archive into the other pane",
+			Category:    "File",
+			Context:     CtxFileSelected,
+			Keybinding:  "x",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return ExtractArchiveMsg{} }
+			},
+		},
+		{
+			ID:          "file.chmod",
+			Name:        "Change Permissions",
+			Description: "Edit the unix permission bits of the selected item",
+			Category:    "File",
+			Context:     CtxFileSelected,
+			Keybinding:  "cm",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return ChmodSelectedMsg{} }
+			},
+		},
+		{
+			ID:          "file.info",
+			Name:        "Quick Info",
+			Description: "Show rich metadata for the selected item",
+			Category:    "File",
+			Context:     CtxFileSelected,
+			Keybinding:  "i",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return QuickInfoMsg{} }
+			},
+		},
+		{
+			ID:          "file.select-glob",
+			Name:        "Select by Pattern",
+			Description: "Multi-select files matching a glob pattern",
+			Category:    "File",
+			Context:     CtxAlways,
+			Keybinding:  "V",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return SelectByGlobMsg{} }
+			},
+		},
+		{
+			ID:          "nav.dir-size",
+			Name:        "Calculate Directory Size",
+			Description: "Compute recursive size of the cursor directory",
+			Category:    "Navigation",
+			Context:     CtxFileSelected,
+			Keybinding:  "Z",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return CalcDirSizeMsg{} }
+			},
+		},
+		{
+			ID:          "app.version",
+			Name:        "Show Version",
+			Description: "Display pelorus version and build info",
+			Category:    "App",
+			Context:     CtxAlways,
+			Keybinding:  "",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return ShowVersionMsg{} }
 			},
 		},
 	}

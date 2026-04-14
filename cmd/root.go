@@ -20,6 +20,7 @@ import (
 	"github.com/mogglemoss/pelorus/internal/provider/local"
 	"github.com/mogglemoss/pelorus/internal/quotes"
 	"github.com/mogglemoss/pelorus/internal/theme"
+	"github.com/mogglemoss/pelorus/internal/version"
 )
 
 var cfgFile string
@@ -29,7 +30,7 @@ var demoMode bool
 var rootCmd = &cobra.Command{
 	Use:     "pelorus [path]",
 	Short:   "Pelorus — an opinionated TUI file manager",
-	Version: "1.0.0",
+	Version: version.Version,
 	Long: `Pelorus is a dual-pane TUI file manager with a retrofuture subaquatic aesthetic.
 
 Usage:
