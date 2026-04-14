@@ -777,12 +777,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case mascot.TickMsg:
 		working := m.previewModel.IsLoading() || len(m.queue.Running()) > 0 || m.connecting
-		if working || m.mascotFrame != 0 {
-			// Keep animating until the current cycle completes (frame wraps to 0).
+		if working || (m.mascotActive && m.mascotFrame%6 != 0) {
+			// Keep animating the active cycle until it completes (frame wraps to 0).
 			m.mascotActive = true
 			m.mascotFrame = (m.mascotFrame + 1) % 6
 		} else {
+			// Idle: still advance the frame counter so the rest-frame breathing
+			// animation progresses. Use a wider modulus (48) to keep cycles
+			// from aliasing with the active cycle when a task starts.
 			m.mascotActive = false
+			m.mascotFrame = (m.mascotFrame + 1) % 48
 		}
 		return m, mascot.Tick()
 

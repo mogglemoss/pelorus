@@ -123,7 +123,7 @@ func PelorusTheme() Theme {
 
 
 		ActiveBorder: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.ThickBorder()).
 			BorderForeground(lipgloss.Color(colorBorderActive)).
 			Background(lipgloss.Color(colorBgPane)),
 
@@ -251,7 +251,7 @@ func GruvboxTheme() Theme {
 
 
 		ActiveBorder: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.ThickBorder()).
 			BorderForeground(lipgloss.Color("#b8bb26")).
 			Background(lipgloss.Color(paneBg)),
 
@@ -379,7 +379,7 @@ func NordTheme() Theme {
 
 
 		ActiveBorder: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.ThickBorder()).
 			BorderForeground(lipgloss.Color("#88c0d0")).
 			Background(lipgloss.Color(paneBg)),
 
@@ -507,7 +507,7 @@ func LightTheme() Theme {
 
 
 		ActiveBorder: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.ThickBorder()).
 			BorderForeground(lipgloss.Color("#0e7c7b")).
 			Background(lipgloss.Color(paneBg)),
 
@@ -637,7 +637,7 @@ func DraculaTheme() Theme {
 
 
 		ActiveBorder: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.ThickBorder()).
 			BorderForeground(lipgloss.Color("#BD93F9")).
 			Background(lipgloss.Color(paneBg)),
 
@@ -767,7 +767,7 @@ func CatppuccinTheme() Theme {
 
 
 		ActiveBorder: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.ThickBorder()).
 			BorderForeground(lipgloss.Color("#cba6f7")).
 			Background(lipgloss.Color(paneBg)),
 
@@ -911,7 +911,7 @@ func HaruspexTheme() Theme {
 
 
 		ActiveBorder: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
+			Border(lipgloss.ThickBorder()).
 			BorderForeground(lipgloss.Color(hxRust)).
 			Background(lipgloss.Color(paneBg)),
 

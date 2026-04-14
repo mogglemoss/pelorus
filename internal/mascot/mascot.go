@@ -50,8 +50,15 @@ var frames = [6]frameData{
 	{"·", "#C15F3C", 1}, // 5 far left
 }
 
-// restFrame is shown when the mascot is idle (no active tasks).
-var restFrame = frameData{"·", "#8A3820", 3}
+// restFrames cycles a subtle "breathing" animation when the mascot is idle.
+// The antenna tip and glow colour dim and brighten slowly; eye stays centred.
+// Frame durations are controlled by the same 550 ms tick.
+var restFrames = [4]frameData{
+	{"·", "#6b2a18", 3}, // deep dim
+	{"·", "#8A3820", 3}, // base
+	{"·", "#a34a28", 3}, // warming
+	{"·", "#8A3820", 3}, // base
+}
 
 // View renders the mascot as a 3-line string.
 //
@@ -65,9 +72,14 @@ var restFrame = frameData{"·", "#8A3820", 3}
 //	 ╭───●───╮  ← head outline + glow node (rust)
 //	(│   ◉   │) ← face; eye shifts left/right when active
 func View(frame int, active bool, headerBg string) string {
-	f := restFrame
+	var f frameData
 	if active {
 		f = frames[frame%6]
+	} else {
+		// Slow breathing: cycle restFrames every 2 ticks (~1.1 s per step,
+		// ~4.4 s full cycle). The frame counter keeps incrementing across
+		// active/idle transitions, so the cycle advances even at rest.
+		f = restFrames[(frame/2)%len(restFrames)]
 	}
 
 	bg := lipgloss.Color(headerBg)

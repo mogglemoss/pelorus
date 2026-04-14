@@ -3,13 +3,7 @@ package preview
 import (
 	"bytes"
 	"fmt"
-	"hash/fnv"
-	"image"
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -66,8 +60,8 @@ type Model struct {
 // New creates a new preview Model.
 func New(t *theme.Theme) *Model {
 	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(t.StatusBarAccent.GetForeground())
+	s.Spinner = spinner.Meter
+	s.Style = lipgloss.NewStyle().Foreground(t.StatusBarAccent.GetForeground()).Bold(true)
 
 	vp := viewport.New(0, 0)
 
@@ -381,19 +375,22 @@ func (m *Model) View() string {
 		innerH = 1
 	}
 
-	// Header line with filename.
+	// Header line with filename. Lipgloss wraps at Width(innerW) — measure the
+	// actual rendered height so the viewport below shrinks as the header grows,
+	// instead of overflowing the bottom border.
 	headerText := " Preview"
 	if m.file != nil {
 		headerText = " " + m.file.Name
 	}
 	header := m.Theme.StatusBarAccent.Copy().Bold(true).Width(innerW).Render(headerText)
+	headerH := lipgloss.Height(header)
 
 	// Separator.
 	sep := strings.Repeat("─", innerW)
 	separator := m.Theme.Divider.Render(sep)
 
-	// Viewport area (innerH - 2 for header + separator).
-	vpH := innerH - 2
+	// Viewport area: innerH minus actual header height, minus separator (1 line).
+	vpH := innerH - headerH - 1
 	if m.searchOpen {
 		vpH--
 	}
@@ -411,9 +408,19 @@ func (m *Model) View() string {
 			Width(innerW).Height(vpH).
 			Render("No file selected")
 	} else if m.loading {
+		name := ""
+		if m.file != nil {
+			name = m.file.Name
+		}
+		accent := m.Theme.StatusBarAccent.GetForeground()
+		dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6c7086"))
+		nameStyle := lipgloss.NewStyle().Foreground(accent).Bold(true)
+		loadLine := m.spinner.View() + "  " + nameStyle.Render(name)
+		hint := dim.Render("reading…")
 		body = lipgloss.NewStyle().
 			Width(innerW).Height(vpH).
-			Render(m.spinner.View() + " Loading…")
+			Align(lipgloss.Center, lipgloss.Center).
+			Render(loadLine + "\n\n" + hint)
 	} else if m.err != nil {
 		body = lipgloss.NewStyle().
 			Width(innerW).Height(vpH).
@@ -463,6 +470,11 @@ func renderFile(fi *fileinfo.FileInfo, width, height int) (string, error) {
 		return renderDir(fi, innerW, contentLines)
 	}
 
+	// Symlinks: show a target-focused card (including broken-link indicator).
+	if fi.IsSymlink {
+		return renderSymlinkCard(fi, innerW), nil
+	}
+
 	// Image files: render metadata card with artist tile.
 	if isImageExt(filepath.Ext(fi.Name)) {
 		return renderImageCard(fi, fi.Path, innerW)
@@ -471,14 +483,14 @@ func renderFile(fi *fileinfo.FileInfo, width, height int) (string, error) {
 	// Try to read the file.
 	f, err := os.Open(fi.Path)
 	if err != nil {
-		return renderFileInfo(fi), nil
+		return renderInfoCard(fi, innerW), nil
 	}
 	defer f.Close()
 
 	limited := io.LimitReader(f, maxReadBytes+1)
 	raw, err := io.ReadAll(limited)
 	if err != nil {
-		return renderFileInfo(fi), nil
+		return renderInfoCard(fi, innerW), nil
 	}
 
 	truncated := false
@@ -489,7 +501,7 @@ func renderFile(fi *fileinfo.FileInfo, width, height int) (string, error) {
 
 	// Check UTF-8.
 	if !utf8.Valid(raw) {
-		return renderFileInfo(fi), nil
+		return renderInfoCard(fi, innerW), nil
 	}
 
 	content := string(raw)
@@ -593,203 +605,6 @@ func renderDir(fi *fileinfo.FileInfo, width, maxLines int) (string, error) {
 	}
 
 	return sb.String(), nil
-}
-
-// renderImageCard renders a rich metadata card for image files.
-// It shows a procedural artist tile (unique per file, colored from pixel data or hash)
-// followed by a metadata table with format, size, dimensions, and modification time.
-func renderImageCard(fi *fileinfo.FileInfo, path string, width int) (string, error) {
-	// Try to decode image dimensions from header only.
-	dimStr := "unknown"
-	if f, err := os.Open(path); err == nil {
-		if cfg, _, err2 := image.DecodeConfig(f); err2 == nil {
-			dimStr = fmt.Sprintf("%d × %d", cfg.Width, cfg.Height)
-		}
-		f.Close()
-	}
-
-	col := sampleOrHashColor(fi, path)
-
-	ext := strings.ToUpper(strings.TrimPrefix(strings.ToLower(filepath.Ext(fi.Name)), "."))
-	if ext == "" {
-		ext = "IMAGE"
-	}
-
-	lbl := lipgloss.NewStyle().Foreground(lipgloss.Color("#777777"))
-	val := lipgloss.NewStyle().Bold(true)
-	rows := []string{
-		lbl.Render("format  ") + val.Render(ext),
-		lbl.Render("size    ") + val.Render(fileinfo.HumanSize(fi.Size)),
-		lbl.Render("dims    ") + val.Render(dimStr),
-		lbl.Render("modified") + val.Render(fi.ModTime.Format("2006-01-02 15:04")),
-	}
-
-	tile := buildArtistTile(fi.Name, fi.Size, col, width)
-	return tile + "\n\n" + strings.Join(rows, "\n"), nil
-}
-
-// sampleOrHashColor tries to sample a representative pixel from the image for
-// its color. Falls back to a deterministic color derived from the filename hash
-// when the image is too large to decode safely or decoding fails.
-func sampleOrHashColor(fi *fileinfo.FileInfo, path string) lipgloss.Color {
-	f, err := os.Open(path)
-	if err != nil {
-		return hashColor(fi.Name, fi.Size)
-	}
-	defer f.Close()
-
-	// Check dimensions first to avoid allocating huge pixel buffers.
-	cfg, _, err := image.DecodeConfig(f)
-	if err != nil || cfg.Width > 1000 || cfg.Height > 1000 {
-		return hashColor(fi.Name, fi.Size)
-	}
-
-	// Re-open for full decode (DecodeConfig consumed the reader).
-	f.Close()
-	f2, err := os.Open(path)
-	if err != nil {
-		return hashColor(fi.Name, fi.Size)
-	}
-	defer f2.Close()
-
-	img, _, err := image.Decode(io.LimitReader(f2, maxReadBytes))
-	if err != nil {
-		return hashColor(fi.Name, fi.Size)
-	}
-
-	bounds := img.Bounds()
-	dx, dy := bounds.Dx(), bounds.Dy()
-	if dx == 0 || dy == 0 {
-		return hashColor(fi.Name, fi.Size)
-	}
-
-	// Sample from five positions distributed across the image.
-	pts := [][2]int{
-		{bounds.Min.X + dx/4, bounds.Min.Y + dy/4},
-		{bounds.Min.X + dx/2, bounds.Min.Y + dy/2},
-		{bounds.Min.X + 3*dx/4, bounds.Min.Y + 3*dy/4},
-		{bounds.Min.X + dx/4, bounds.Min.Y + 3*dy/4},
-		{bounds.Min.X + 3*dx/4, bounds.Min.Y + dy/4},
-	}
-	var bestSat uint32
-	var bestR, bestG, bestB uint8
-	for _, pt := range pts {
-		if pt[0] >= bounds.Max.X || pt[1] >= bounds.Max.Y {
-			continue
-		}
-		r, g, b, _ := img.At(pt[0], pt[1]).RGBA()
-		r8, g8, b8 := uint8(r>>8), uint8(g>>8), uint8(b>>8)
-		if sat := colorSaturation(r8, g8, b8); sat > bestSat {
-			bestSat = sat
-			bestR, bestG, bestB = r8, g8, b8
-		}
-	}
-	if bestSat > 20 { // ignore near-grey pixels
-		return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", bestR, bestG, bestB))
-	}
-	return hashColor(fi.Name, fi.Size)
-}
-
-// colorSaturation returns the chroma (max-min of RGB channels) as a saturation proxy.
-func colorSaturation(r, g, b uint8) uint32 {
-	max := r
-	if g > max {
-		max = g
-	}
-	if b > max {
-		max = b
-	}
-	min := r
-	if g < min {
-		min = g
-	}
-	if b < min {
-		min = b
-	}
-	return uint32(max) - uint32(min)
-}
-
-// hashColor derives a deterministic, vivid color from a filename and size.
-func hashColor(name string, size int64) lipgloss.Color {
-	h := fnv.New32a()
-	h.Write([]byte(name))
-	h.Write([]byte(strconv.FormatInt(size, 10)))
-	v := h.Sum32()
-	r, g, b := hslToRGB(float64(v%360), 0.70, 0.62)
-	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", r, g, b))
-}
-
-// hslToRGB converts HSL values to 8-bit RGB components.
-func hslToRGB(h, s, l float64) (uint8, uint8, uint8) {
-	c := (1 - math.Abs(2*l-1)) * s
-	x := c * (1 - math.Abs(math.Mod(h/60.0, 2.0)-1.0))
-	m := l - c/2.0
-	var r, g, b float64
-	switch {
-	case h < 60:
-		r, g, b = c, x, 0
-	case h < 120:
-		r, g, b = x, c, 0
-	case h < 180:
-		r, g, b = 0, c, x
-	case h < 240:
-		r, g, b = 0, x, c
-	case h < 300:
-		r, g, b = x, 0, c
-	default:
-		r, g, b = c, 0, x
-	}
-	return uint8((r+m)*255 + 0.5), uint8((g+m)*255 + 0.5), uint8((b+m)*255 + 0.5)
-}
-
-// buildArtistTile generates a deterministic block-character tile for an image file.
-// The pattern is derived from the filename+size hash; the color comes from pixel
-// sampling or falls back to a hash-derived hue.
-func buildArtistTile(name string, size int64, col lipgloss.Color, width int) string {
-	h := fnv.New64a()
-	h.Write([]byte(name))
-	h.Write([]byte(strconv.FormatInt(size, 10)))
-	v := h.Sum64()
-
-	const (
-		lcgA  uint64 = 6364136223846793005
-		lcgC  uint64 = 1442695040888963407
-		tileH        = 5
-	)
-	blocks := []rune("▀▄█▌▐▙▛▜▟░▒▓")
-
-	tileW := width - 2
-	if tileW < 8 {
-		tileW = 8
-	}
-	if tileW > 40 {
-		tileW = 40
-	}
-
-	style := lipgloss.NewStyle().Foreground(col)
-	var sb strings.Builder
-	for row := 0; row < tileH; row++ {
-		var line strings.Builder
-		for ci := 0; ci < tileW; ci++ {
-			v = v*lcgA + lcgC
-			line.WriteRune(blocks[v>>58%uint64(len(blocks))])
-		}
-		if row > 0 {
-			sb.WriteByte('\n')
-		}
-		sb.WriteString(style.Render(line.String()))
-	}
-	return sb.String()
-}
-
-func renderFileInfo(fi *fileinfo.FileInfo) string {
-	return fmt.Sprintf(
-		"Name:        %s\nSize:        %s\nPermissions: %s\nModified:    %s\n\n[binary or unreadable file]",
-		fi.Name,
-		fileinfo.HumanSize(fi.Size),
-		fi.Mode.String(),
-		fi.ModTime.Format("2006-01-02 15:04:05"),
-	)
 }
 
 
