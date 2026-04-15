@@ -107,6 +107,7 @@ type Model struct {
 	marks       map[rune]string // key → path
 	markPending bool            // true = waiting for mark key
 	jumpPending bool            // true = waiting for jump key
+	zPending    bool            // true = waiting for second key of z-leader chord
 
 	// Search overlay.
 	searchModel *search.Model
@@ -356,6 +357,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.previewModel.OpenSearch()
 		}
+		return m, nil
+
+	case actions.StartFilterMsg:
+		ap := m.activeP()
+		ap.StartFilter()
 		return m, nil
 
 	case actions.OpenEditorMsg:
@@ -1064,16 +1070,22 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// "/" always opens preview content search — opens the preview pane first if
-	// it isn't visible. No-op when no file is selected.
-	if key == "/" {
-		if sel := m.activeP().Selected(); sel != nil && !sel.IsDir {
-			if !m.showPreview {
-				m.showPreview = true
-				m.layoutPanes()
-			}
-			m.previewModel.OpenSearch()
+	// z-leader chord second key. Currently supports `z/` for preview content
+	// search (a backup for `ctrl+/`, which some terminals swallow).
+	if m.zPending {
+		m.zPending = false
+		m.statusMsg = ""
+		if key == "/" {
+			return m, func() tea.Msg { return actions.PreviewSearchMsg{} }
 		}
+		return m, nil
+	}
+
+	// `z` is the leader for chord bindings. Intercepted before action lookup
+	// so the second key doesn't also dispatch.
+	if key == "z" {
+		m.zPending = true
+		m.statusMsg = "z-"
 		return m, nil
 	}
 
@@ -1133,26 +1145,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg { return actions.BulkRenameMsg{} }
 	}
 
-	// Printable single chars that are not bound -> start fuzzy filter on active pane.
-	// Only trigger for chars that can plausibly start a filename: letters, digits,
-	// dot (hidden files), underscore, hyphen. Symbols such as ] [ > < ! ' are
-	// reserved for actions and must never fall through to the filter, even when
-	// their action isn't currently active (e.g. ] scrolls preview, but shouldn't
-	// start a filter when the preview pane is closed).
-	if len(key) == 1 {
-		ch := key[0]
-		isFilenameStart := (ch >= 'a' && ch <= 'z') ||
-			(ch >= 'A' && ch <= 'Z') ||
-			(ch >= '0' && ch <= '9') ||
-			ch == '.' || ch == '_' || ch == '-'
-		if isFilenameStart {
-			ap.StartFilter()
-			ap.FilterStr = key
-			ap.ApplyFilterPublic()
-			return m, nil
-		}
-	}
-
+	// Unbound keys are no-ops. Filter mode is an explicit mode: press `/`
+	// (nav.filter action) to enter it. We used to auto-fallthrough printable
+	// chars to filter, but the single-letter action keyspace is too dense for
+	// that to be unambiguous — typing `d` for `documents/` would fire delete.
 	return m, nil
 }
 
@@ -1985,7 +1981,7 @@ func (m *Model) renderFooter() string {
 	}
 	shortcuts := []shortcut{
 		{"tab", "switch", "nav.switch-pane"},
-		{"/", "search", "view.preview-search"},
+		{"/", "filter", "nav.filter"},
 		{"^p", "palette", "palette.open"},
 		{"?", "help", "app.help"},
 		{"q", "quit", "app.quit"},

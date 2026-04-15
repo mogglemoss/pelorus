@@ -28,7 +28,7 @@ Dual-pane TUI file manager. Local filesystem, SFTP remotes, and Tailscale nodes,
 
 **Navigation**
 - `j` / `k` / `h` / `l` — you know what these do
-- Type in any pane to fuzzy-filter its contents live
+- `/` starts fuzzy filter on the active pane — type to narrow, enter to open, esc to clear
 - `g` opens the jump list — frecency-ranked, fuzzy-searchable, persistent
 - `B` to pin the current directory; `~` to go home; `ctrl+l` to type a path directly (tab completes filenames)
 - `s` cycles sort order per pane: name → size → date → extension
@@ -150,6 +150,7 @@ Set `start_dir = "last"` in config to always reopen where you left off.
 | `~` | Go to home directory |
 | `ctrl+l` | Go to path (type any path) |
 | `s` | Cycle sort: name → size → date → ext |
+| `/` | Fuzzy-filter the active pane |
 | `ctrl+f` | Recursive file search |
 | `m<key>` | Set mark on current directory |
 | `'<key>` | Jump to mark |
@@ -181,7 +182,7 @@ Set `start_dir = "last"` in config to always reopen where you left off.
 |-----|--------|
 | `p` | Toggle preview pane |
 | `]` / `[` | Scroll preview down / up |
-| `/` | Search within preview (opens preview pane if needed) |
+| `ctrl+/` or `z/` | Search within preview (opens preview pane if needed) |
 | `.` | Toggle hidden files |
 | `J` | Job queue |
 | `<` / `>` | Shrink / grow left pane |

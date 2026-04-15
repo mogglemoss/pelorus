@@ -124,6 +124,9 @@ type OpenSearchMsg struct{}
 // PreviewSearchMsg tells the app to open the inline search bar in the preview pane.
 type PreviewSearchMsg struct{}
 
+// StartFilterMsg tells the app to start fuzzy-filter mode on the active pane.
+type StartFilterMsg struct{}
+
 // OpenShellMsg tells the app to drop into an interactive shell in the current directory.
 type OpenShellMsg struct{}
 
@@ -311,9 +314,20 @@ func RegisterBuiltins(r *Registry) {
 			Description: "Open inline search bar in the preview pane",
 			Category:    "View",
 			Context:     CtxAlways,
-			Keybinding:  "/",
+			Keybinding:  "ctrl+/",
 			Handler: func(_ AppState) tea.Cmd {
 				return func() tea.Msg { return PreviewSearchMsg{} }
+			},
+		},
+		{
+			ID:          "nav.filter",
+			Name:        "Filter Pane",
+			Description: "Fuzzy-filter the active pane's contents",
+			Category:    "Navigation",
+			Context:     CtxAlways,
+			Keybinding:  "/",
+			Handler: func(_ AppState) tea.Cmd {
+				return func() tea.Msg { return StartFilterMsg{} }
 			},
 		},
 		{
