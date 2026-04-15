@@ -189,11 +189,16 @@ func Get(name string) Theme {
 	} else {
 		applyDarkCards(&t, accent)
 	}
-	// Bake the pane background into list-item styles. Without this, each
-	// rendered row emits only fg codes and any embedded \x1b[0m resets snap
-	// the row background to the user's terminal default — fine by accident
-	// on dark themes in dark terminals, disastrous on light themes where
-	// pane bg ≠ terminal bg (readable text vanishes between resets).
+	// Bake the pane background into list-item styles and into the border
+	// characters themselves. Without this:
+	//   * Each rendered row emits only fg codes — embedded \x1b[0m resets
+	//     snap the row bg to the terminal default, which matches dark
+	//     themes in dark terminals by accident but makes the light theme
+	//     render as black gaps around readable text.
+	//   * Lipgloss Border().Background() only paints the *inside* of the
+	//     border. The border characters (┏━┓┃┗┛) render with fg only, so
+	//     the pane appears framed by a thin strip of the terminal's bg.
+	//     BorderBackground fixes this by setting bg on the border glyphs.
 	paneBg := t.ActiveBorder.GetBackground()
 	if paneBg != nil {
 		t.DirName = t.DirName.Background(paneBg)
@@ -203,6 +208,10 @@ func Get(name string) Theme {
 		t.Divider = t.Divider.Background(paneBg)
 		t.SectionLabel = t.SectionLabel.Background(paneBg)
 		t.PathHeader = t.PathHeader.Background(paneBg)
+
+		t.ActiveBorder = t.ActiveBorder.BorderBackground(paneBg)
+		t.InactiveBorder = t.InactiveBorder.BorderBackground(paneBg)
+		t.PreviewBorder = t.PreviewBorder.BorderBackground(paneBg)
 	}
 	// Fallback for Omarchy / custom themes that don't set their own highlight
 	// styles: pick a sane built-in pair based on background luminance.
