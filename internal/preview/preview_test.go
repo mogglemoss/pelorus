@@ -186,6 +186,8 @@ func TestStripANSIBg(t *testing.T) {
 }
 
 // TestSoftenResets verifies that full SGR resets are converted to fg-only resets.
+// This variant exercises the fallback path (no theme colours) — see
+// TestSoftenResetsThemed for the theme-aware behaviour.
 func TestSoftenResets(t *testing.T) {
 	fgReset := "\x1b[39m"
 
@@ -223,7 +225,7 @@ func TestSoftenResets(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := softenResets(tc.input)
+			got := softenResets(tc.input, "", "")
 			if got != tc.want {
 				t.Errorf("softenResets mismatch\n  input: %q\n  want:  %q\n  got:   %q", tc.input, tc.want, got)
 			}

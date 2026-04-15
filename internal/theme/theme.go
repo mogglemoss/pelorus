@@ -67,6 +67,14 @@ type Theme struct {
 	// PaletteCategoryHeader styles the uppercase category dividers inside the
 	// command palette and help overlay. Derived from the theme accent at load.
 	PaletteCategoryHeader lipgloss.Style
+
+	// ChromaStyle names a Chroma syntax-highlight style (e.g. "monokai",
+	// "github", "gruvbox"). Used by the preview pane for source files.
+	ChromaStyle string
+
+	// GlamourStyle names a Glamour markdown style (e.g. "dark", "light",
+	// "dracula"). Used by the preview pane for markdown files.
+	GlamourStyle string
 }
 
 // Package-level semantic colour styles for card rendering. These are the
@@ -139,27 +147,35 @@ func Get(name string) Theme {
 	switch n {
 	case "gruvbox":
 		t = GruvboxTheme()
+		t.ChromaStyle, t.GlamourStyle = "gruvbox", "dark"
 	case "nord":
 		t = NordTheme()
+		t.ChromaStyle, t.GlamourStyle = "nord", "dark"
 	case "light":
 		t = LightTheme()
+		t.ChromaStyle, t.GlamourStyle = "github", "light"
 	case "dracula":
 		t = DraculaTheme()
+		t.ChromaStyle, t.GlamourStyle = "dracula", "dracula"
 	case "catppuccin":
 		t = CatppuccinTheme()
+		t.ChromaStyle, t.GlamourStyle = "catppuccin-mocha", "dark"
 	case "haruspex":
 		t = HaruspexTheme()
+		t.ChromaStyle, t.GlamourStyle = "monokai", "dark"
 	case "omarchy":
 		if ot, ok := LoadOmarchyTheme(); ok {
 			t = ot
 		} else {
 			t = HaruspexTheme()
+			t.ChromaStyle, t.GlamourStyle = "monokai", "dark"
 		}
 	default:
 		if ot, ok := LoadOmarchyTheme(); ok {
 			t = ot
 		} else {
 			t = HaruspexTheme()
+			t.ChromaStyle, t.GlamourStyle = "monokai", "dark"
 		}
 	}
 	// Populate Card* semantic styles from the theme's accent. Use the theme's
@@ -167,10 +183,27 @@ func Get(name string) Theme {
 	// the palette is light — that way Omarchy light themes, custom themes,
 	// etc. all get the right card styles automatically.
 	accent := extractAccent(t)
-	if isLightTheme(t) {
+	light := isLightTheme(t)
+	if light {
 		applyLightCards(&t, accent)
 	} else {
 		applyDarkCards(&t, accent)
+	}
+	// Fallback for Omarchy / custom themes that don't set their own highlight
+	// styles: pick a sane built-in pair based on background luminance.
+	if t.ChromaStyle == "" {
+		if light {
+			t.ChromaStyle = "github"
+		} else {
+			t.ChromaStyle = "monokai"
+		}
+	}
+	if t.GlamourStyle == "" {
+		if light {
+			t.GlamourStyle = "light"
+		} else {
+			t.GlamourStyle = "dark"
+		}
 	}
 	return t
 }

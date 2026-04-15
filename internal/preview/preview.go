@@ -133,7 +133,9 @@ func (m *Model) SetContent(msg ContentReadyMsg) {
 		// the pane background, and convert full SGR resets to fg-only resets
 		// so the background is never cleared between tokens.
 		content = stripANSIBg(content)
-		content = softenResets(content)
+		fg := hexFromColor(m.Theme.FileName.GetForeground())
+		bg := hexFromColor(m.Theme.PreviewBorder.GetBackground())
+		content = softenResets(content, fg, bg)
 	}
 	// Image card content uses only fg colors — leave its ANSI sequences untouched.
 
@@ -318,17 +320,56 @@ func stripANSI(s string) string {
 	return ansiEscape.ReplaceAllString(s, "")
 }
 
-// softenResets replaces full SGR resets (\x1b[0m and \x1b[m) with a
-// foreground-only reset (\x1b[39m). This preserves the current background
-// color, which is set by the enclosing lipgloss container (the preview pane
-// border). Without this, every \x1b[0m between Chroma tokens would snap the
-// background to the terminal default (black), and the viewport's internal
-// lipgloss padding would compound the problem by adding its own resets that
-// we can't post-process.
-func softenResets(s string) string {
-	s = strings.ReplaceAll(s, "\x1b[0m", "\x1b[39m")
-	s = strings.ReplaceAll(s, "\x1b[m", "\x1b[39m")
+// softenResets replaces full SGR resets (\x1b[0m and \x1b[m) with a reset
+// that snaps fg/bg back to the *theme* colours rather than the terminal
+// defaults. Without this, every reset between Chroma tokens would revert to
+// the user's terminal foreground — which on a light pelorus theme running in
+// a dark terminal makes the text invisibly white on light pane bg.
+func softenResets(s, fgHex, bgHex string) string {
+	fr, fg, fb, okFg := parseHex(fgHex)
+	br, bg, bb, okBg := parseHex(bgHex)
+	var reset string
+	switch {
+	case okFg && okBg:
+		reset = fmt.Sprintf("\x1b[0;38;2;%d;%d;%d;48;2;%d;%d;%dm", fr, fg, fb, br, bg, bb)
+	case okFg:
+		reset = fmt.Sprintf("\x1b[0;38;2;%d;%d;%dm", fr, fg, fb)
+	case okBg:
+		reset = fmt.Sprintf("\x1b[0;48;2;%d;%d;%dm", br, bg, bb)
+	default:
+		reset = "\x1b[39m"
+	}
+	s = strings.ReplaceAll(s, "\x1b[0m", reset)
+	s = strings.ReplaceAll(s, "\x1b[m", reset)
 	return s
+}
+
+// hexFromColor pulls a #rrggbb string out of a lipgloss color, returning ""
+// if the color is not a direct hex value (e.g. an ANSI number).
+func hexFromColor(c lipgloss.TerminalColor) string {
+	if lc, ok := c.(lipgloss.Color); ok {
+		s := string(lc)
+		if strings.HasPrefix(s, "#") && len(s) == 7 {
+			return s
+		}
+	}
+	return ""
+}
+
+// parseHex parses #rrggbb into r/g/b in [0,255]. Returns ok=false otherwise.
+func parseHex(s string) (int, int, int, bool) {
+	if !strings.HasPrefix(s, "#") || len(s) != 7 {
+		return 0, 0, 0, false
+	}
+	var rgb [3]int
+	for i := 0; i < 3; i++ {
+		v, err := strconv.ParseInt(s[1+i*2:3+i*2], 16, 0)
+		if err != nil {
+			return 0, 0, 0, false
+		}
+		rgb[i] = int(v)
+	}
+	return rgb[0], rgb[1], rgb[2], true
 }
 
 func (m *Model) rebuildSearch() {
@@ -426,9 +467,15 @@ func (m *Model) View() string {
 	m.vp.Width = innerW
 	m.vp.Height = vpH
 
+	// Pane background taken from the preview border style so every body line
+	// renders on the theme's pane colour — otherwise chroma/glamour output
+	// leaves stray terminal-default gaps between tokens.
+	paneBg := m.Theme.PreviewBorder.GetBackground()
+	bgStyle := lipgloss.NewStyle().Background(paneBg)
+
 	var body string
 	if m.file == nil {
-		body = lipgloss.NewStyle().
+		body = bgStyle.Copy().
 			Width(innerW).Height(vpH).
 			Render("No file selected")
 	} else if m.loading {
@@ -437,20 +484,22 @@ func (m *Model) View() string {
 			name = m.file.Name
 		}
 		accent := m.Theme.StatusBarAccent.GetForeground()
-		dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6c7086"))
-		nameStyle := lipgloss.NewStyle().Foreground(accent).Bold(true)
+		dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6c7086")).Background(paneBg)
+		nameStyle := lipgloss.NewStyle().Foreground(accent).Background(paneBg).Bold(true)
 		loadLine := m.spinner.View() + "  " + nameStyle.Render(name)
 		hint := dim.Render("reading…")
-		body = lipgloss.NewStyle().
+		body = bgStyle.Copy().
 			Width(innerW).Height(vpH).
 			Align(lipgloss.Center, lipgloss.Center).
 			Render(loadLine + "\n\n" + hint)
 	} else if m.err != nil {
-		body = lipgloss.NewStyle().
+		body = bgStyle.Copy().
 			Width(innerW).Height(vpH).
 			Render("Error: " + m.err.Error())
 	} else {
-		body = m.vp.View()
+		body = bgStyle.Copy().
+			Width(innerW).Height(vpH).
+			Render(m.vp.View())
 	}
 
 	var inner string
@@ -480,7 +529,10 @@ func renderFile(fi *fileinfo.FileInfo, width, height int, t *theme.Theme, gitGly
 		return "", nil
 	}
 
-	innerW := width - 4
+	// Match what View() computes for the viewport so renderers wrap to the
+	// exact width the viewport will display. Off-by-2 here leaves a bg gap
+	// on the right and causes glamour to over-wrap URLs.
+	innerW := width - 2
 	if innerW < 10 {
 		innerW = 10
 	}
@@ -542,13 +594,21 @@ func renderFile(fi *fileinfo.FileInfo, width, height int, t *theme.Theme, gitGly
 	// Markdown.
 	ext := strings.ToLower(filepath.Ext(fi.Name))
 	if ext == ".md" || ext == ".markdown" {
-		rendered, err = renderMarkdown(content, innerW)
+		glamourStyle := ""
+		if t != nil {
+			glamourStyle = t.GlamourStyle
+		}
+		rendered, err = renderMarkdown(content, innerW, glamourStyle)
 		if err != nil {
 			rendered = content // fallback to raw
 		}
 	} else {
+		chromaStyle := ""
+		if t != nil {
+			chromaStyle = t.ChromaStyle
+		}
 		// Try Chroma syntax highlight.
-		highlighted, chromaErr := renderChroma(fi.Name, content, innerW)
+		highlighted, chromaErr := renderChroma(fi.Name, content, innerW, chromaStyle)
 		if chromaErr == nil && highlighted != "" {
 			rendered = highlighted
 		} else {
@@ -563,9 +623,12 @@ func renderFile(fi *fileinfo.FileInfo, width, height int, t *theme.Theme, gitGly
 	return rendered, nil
 }
 
-func renderMarkdown(content string, width int) (string, error) {
+func renderMarkdown(content string, width int, styleName string) (string, error) {
+	if styleName == "" {
+		styleName = "dark"
+	}
 	renderer, err := glamour.NewTermRenderer(
-		glamour.WithStylePath("dark"),
+		glamour.WithStylePath(styleName),
 		glamour.WithWordWrap(width),
 	)
 	if err != nil {
@@ -574,7 +637,7 @@ func renderMarkdown(content string, width int) (string, error) {
 	return renderer.Render(content)
 }
 
-func renderChroma(filename, content string, _ int) (string, error) {
+func renderChroma(filename, content string, _ int, styleName string) (string, error) {
 	lexer := lexers.Match(filename)
 	if lexer == nil {
 		lexer = lexers.Analyse(content)
@@ -584,7 +647,10 @@ func renderChroma(filename, content string, _ int) (string, error) {
 	}
 	lexer = chroma.Coalesce(lexer)
 
-	style := styles.Get("monokai")
+	if styleName == "" {
+		styleName = "monokai"
+	}
+	style := styles.Get(styleName)
 	if style == nil {
 		style = styles.Fallback
 	}
@@ -604,8 +670,7 @@ func renderChroma(filename, content string, _ int) (string, error) {
 		return "", err
 	}
 
-	// Strip background-color parameters so the viewport background is uniform.
-	return stripANSIBg(buf.String()), nil
+	return buf.String(), nil
 }
 
 func renderDir(fi *fileinfo.FileInfo, width, maxLines int) (string, error) {
