@@ -189,21 +189,37 @@ func Get(name string) Theme {
 	} else {
 		applyDarkCards(&t, accent)
 	}
-	// Strip pane backgrounds. Earlier versions painted panes/borders with a
-	// themed bg, which meant every cell — content rows, border glyphs,
-	// padding between panes — needed explicit bg or the terminal default
-	// leaked through. Too many leak points to chase. Instead we follow
-	// the yazi/lf/nnn convention: themes only pick foreground colours and
-	// the terminal's native bg shows through. Dark themes assume a dark
-	// terminal; the light theme assumes a light terminal. The user picks
-	// one that matches their terminal, and contrast is guaranteed.
+	// List panes carry a themed bg; preview stays fg-only.
 	//
-	// Cursor, PaletteSelected, header/footer chrome keep their explicit
-	// bg (those are deliberately highlighted) — this only clears pane
-	// body + border bg.
-	t.ActiveBorder = t.ActiveBorder.UnsetBackground()
-	t.InactiveBorder = t.InactiveBorder.UnsetBackground()
-	t.PreviewBorder = t.PreviewBorder.UnsetBackground()
+	// The list panes (left/right) are rendered entirely by our own code
+	// through a handful of well-known lipgloss styles — safe to paint bg
+	// through to every cell. This gives the panes a clear "surface" feel
+	// and makes the active/inactive affordance readable.
+	//
+	// The preview pane carries chroma/glamour output whose resets and
+	// bg-blocks are too leaky to paint against a themed bg without a cat-
+	// and-mouse game (tried it; lost). Instead it keeps its border fg and
+	// lets the terminal bg show through, then gets extra border contrast
+	// so the dashed `╌┊` frame reads as an intentional "floating" surface.
+	//
+	// Cursor / PaletteSelected / header / footer keep their explicit bg —
+	// those are deliberately highlighted chrome.
+	paneBg := t.ActiveBorder.GetBackground()
+	if paneBg != nil {
+		t.ActiveBorder = t.ActiveBorder.BorderBackground(paneBg)
+		t.InactiveBorder = t.InactiveBorder.BorderBackground(paneBg)
+		t.DirName = t.DirName.Background(paneBg)
+		t.FileName = t.FileName.Background(paneBg)
+		t.SymlinkName = t.SymlinkName.Background(paneBg)
+		t.MarkedEntry = t.MarkedEntry.Background(paneBg)
+		t.Divider = t.Divider.Background(paneBg)
+		t.PathHeader = t.PathHeader.Background(paneBg)
+		t.SectionLabel = t.SectionLabel.Background(paneBg)
+	}
+	// Preview: drop bg, bump border contrast to the theme accent.
+	t.PreviewBorder = t.PreviewBorder.
+		UnsetBackground().
+		BorderForeground(lipgloss.Color(accent))
 	// Fallback for Omarchy / custom themes that don't set their own highlight
 	// styles: pick a sane built-in pair based on background luminance.
 	if t.ChromaStyle == "" {
