@@ -189,6 +189,21 @@ func Get(name string) Theme {
 	} else {
 		applyDarkCards(&t, accent)
 	}
+	// Bake the pane background into list-item styles. Without this, each
+	// rendered row emits only fg codes and any embedded \x1b[0m resets snap
+	// the row background to the user's terminal default — fine by accident
+	// on dark themes in dark terminals, disastrous on light themes where
+	// pane bg ≠ terminal bg (readable text vanishes between resets).
+	paneBg := t.ActiveBorder.GetBackground()
+	if paneBg != nil {
+		t.DirName = t.DirName.Background(paneBg)
+		t.FileName = t.FileName.Background(paneBg)
+		t.SymlinkName = t.SymlinkName.Background(paneBg)
+		t.MarkedEntry = t.MarkedEntry.Background(paneBg)
+		t.Divider = t.Divider.Background(paneBg)
+		t.SectionLabel = t.SectionLabel.Background(paneBg)
+		t.PathHeader = t.PathHeader.Background(paneBg)
+	}
 	// Fallback for Omarchy / custom themes that don't set their own highlight
 	// styles: pick a sane built-in pair based on background luminance.
 	if t.ChromaStyle == "" {
