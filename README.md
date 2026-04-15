@@ -83,8 +83,9 @@ Dual-pane TUI file manager. Local filesystem, SFTP remotes, and Tailscale nodes,
 - Appears in the command palette, inherits context filtering, bindable to any key
 
 **Theming**
-- Built-in *retrofuture subaquatic* theme — bioluminescent teal, ocean dark, phosphor cyan
-- Five additional themes: `gruvbox`, `nord`, `light`, `dracula`, `catppuccin`
+- Six built-in themes: `haruspex` (default — warm rust on ink), `gruvbox`, `nord`, `dracula`, `catppuccin`, `light`
+- Panes are foreground-only — the terminal's own background shows through, so themes compose with whatever terminal palette you're already running. Match a dark theme to a dark terminal, light to light
+- Omarchy palettes auto-detected: if `~/.config/omarchy/current/theme` is set, pelorus uses its colors and picks matching chroma/glamour styles by luminance
 - `--theme` / `-t` flag to set at launch; or set in config
 
 ---
@@ -118,7 +119,7 @@ pelorus [path] [flags]
   path              Directory to open (default: current directory)
 
   -f, --config      Config file path (default: XDG config dir)
-  -t, --theme       Theme name: pelorus · gruvbox · nord · light · dracula · catppuccin
+  -t, --theme       Theme name: haruspex · gruvbox · nord · dracula · catppuccin · light · omarchy
       --demo        Start with a sandboxed demo filesystem (for recordings/screenshots)
       --version     Print version and exit
 ```
