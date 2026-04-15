@@ -467,39 +467,30 @@ func (m *Model) View() string {
 	m.vp.Width = innerW
 	m.vp.Height = vpH
 
-	// Pane background taken from the preview border style so every body line
-	// renders on the theme's pane colour — otherwise chroma/glamour output
-	// leaves stray terminal-default gaps between tokens.
-	paneBg := m.Theme.PreviewBorder.GetBackground()
-	bgStyle := lipgloss.NewStyle().Background(paneBg)
+	// Fg-only: no pane bg painting. Terminal default shows through, matching
+	// the yazi/lf/nnn convention. Themes only pick foregrounds.
+	bodyStyle := lipgloss.NewStyle().Width(innerW).Height(vpH)
 
 	var body string
 	if m.file == nil {
-		body = bgStyle.Copy().
-			Width(innerW).Height(vpH).
-			Render("No file selected")
+		body = bodyStyle.Render("No file selected")
 	} else if m.loading {
 		name := ""
 		if m.file != nil {
 			name = m.file.Name
 		}
 		accent := m.Theme.StatusBarAccent.GetForeground()
-		dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6c7086")).Background(paneBg)
-		nameStyle := lipgloss.NewStyle().Foreground(accent).Background(paneBg).Bold(true)
+		dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#6c7086"))
+		nameStyle := lipgloss.NewStyle().Foreground(accent).Bold(true)
 		loadLine := m.spinner.View() + "  " + nameStyle.Render(name)
 		hint := dim.Render("reading…")
-		body = bgStyle.Copy().
-			Width(innerW).Height(vpH).
+		body = bodyStyle.Copy().
 			Align(lipgloss.Center, lipgloss.Center).
 			Render(loadLine + "\n\n" + hint)
 	} else if m.err != nil {
-		body = bgStyle.Copy().
-			Width(innerW).Height(vpH).
-			Render("Error: " + m.err.Error())
+		body = bodyStyle.Render("Error: " + m.err.Error())
 	} else {
-		body = bgStyle.Copy().
-			Width(innerW).Height(vpH).
-			Render(m.vp.View())
+		body = bodyStyle.Render(m.vp.View())
 	}
 
 	var inner string
