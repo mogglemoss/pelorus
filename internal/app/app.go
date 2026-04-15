@@ -1881,10 +1881,12 @@ func (m *Model) renderHeader() string {
 		breadcrumb += fmt.Sprintf("  /%s", ap.FilterStr)
 	}
 
-	// Use header background for rows 2 & 3 — StatusBarAccent/Muted carry the
-	// status bar background which would create a colored bar in the header.
-	hdrFgAccent := lipgloss.NewStyle().Background(lipgloss.Color(hdrBg)).Foreground(m.theme.StatusBarAccent.GetForeground())
-	hdrFgMuted := lipgloss.NewStyle().Background(lipgloss.Color(hdrBg)).Foreground(m.theme.StatusBarMuted.GetForeground())
+	// Rows 2 & 3 live on the header background. Use HeaderPath/HeaderHint,
+	// which every theme designs specifically for contrast against hdrBg —
+	// reusing StatusBar* foregrounds here can collide with hdrBg (e.g. the
+	// light theme's teal status accent on its teal header).
+	hdrFgAccent := m.theme.HeaderPath
+	hdrFgMuted := m.theme.HeaderHint
 
 	gitPart := ""
 	if m.gitBranch != "" {
