@@ -88,6 +88,11 @@ Dual-pane TUI file manager. Local filesystem, SFTP remotes, and Tailscale nodes,
 - Omarchy palettes auto-detected: if `~/.config/omarchy/current/theme` is set, pelorus uses its colors and picks matching chroma/glamour styles by luminance
 - `--theme` / `-t` flag to set at launch; or set in config
 
+**File icons**
+- Pure-Unicode glyph set by default — geometric BMP characters, single-cell width, no font dependency, works on any terminal
+- Set `icons = "nerd"` under `[theme]` in config to opt into Nerd Font devicons (per-language glyphs, requires a Nerd Font installed)
+- Filename-aware (`Dockerfile`, `Makefile`, `LICENSE`, lock files, manifests) and mode-bit-aware (executables without an extension get the exec glyph)
+
 ---
 
 ## Installation
