@@ -15,7 +15,7 @@ func Defaults() *Config {
 			PreviewWidth: 40,
 		},
 		Theme: ThemeConfig{
-			Name: "pelorus",
+			Name: "haruspex",
 		},
 		Keybindings: map[string]string{},
 		Actions:     ActionsConfig{},
@@ -53,8 +53,11 @@ show_preview = true
 preview_width = 40
 
 [theme]
-# Built-in themes: pelorus, gruvbox, nord, light
-name = "pelorus"
+# Built-in themes: haruspex (default), gruvbox, nord, light, dracula, catppuccin.
+# On Omarchy (the Linux distro) the palette at
+# ~/.config/omarchy/current/theme/colors.toml is inherited automatically when
+# name = "omarchy"; any built-in name above takes precedence.
+name = "haruspex"
 
 [keybindings]
 # Override any action's keybinding. Format: "action.id" = "key"

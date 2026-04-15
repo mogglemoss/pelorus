@@ -21,7 +21,7 @@ func stripANSI(s string) string { return ansiRE.ReplaceAllString(s, "") }
 func countLines(s string) int { return len(strings.Split(s, "\n")) }
 
 func testTheme() *theme.Theme {
-	t := theme.PelorusTheme()
+	t := theme.HaruspexTheme()
 	return &t
 }
 

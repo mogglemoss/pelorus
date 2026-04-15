@@ -43,7 +43,7 @@ Usage:
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "f", "", "config file (default: XDG config dir)")
-	rootCmd.PersistentFlags().StringVarP(&themeName, "theme", "t", "", "theme override (haruspex, pelorus, gruvbox, nord, light, dracula, catppuccin, omarchy)")
+	rootCmd.PersistentFlags().StringVarP(&themeName, "theme", "t", "", "theme override (haruspex, gruvbox, nord, light, dracula, catppuccin, omarchy)")
 	rootCmd.PersistentFlags().BoolVar(&demoMode, "demo", false, "start with a sandboxed demo filesystem (for recordings and screenshots)")
 }
 

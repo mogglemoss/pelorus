@@ -119,16 +119,20 @@ func applyLightCards(t *Theme, accent string) {
 		Bold(true)
 }
 
-// Get returns the named theme, defaulting to pelorus.
+// Get returns the named theme, defaulting to haruspex.
 //
-// Special behaviour for Omarchy users: when no explicit theme is configured
-// (name == "" or name == "pelorus"), Get attempts to read the active Omarchy
-// system theme from ~/.config/omarchy/current/theme/colors.toml. If found,
-// pelorus inherits that palette automatically — no config required. Any
-// explicit theme name (gruvbox, dracula, nord, light) overrides this.
+// Omarchy (a Linux distro, not a theme) ships a per-user palette at
+// ~/.config/omarchy/current/theme/colors.toml. When no theme is configured
+// (name == "" or "auto"), Get inherits whatever Omarchy theme the user has
+// active on their system — built-in or custom. If no Omarchy palette is
+// present, Get falls back to the haruspex built-in.
 //
-// Setting theme = "omarchy" in config forces the Omarchy loader without
-// falling back to the pelorus default when omarchy is not detected.
+// Setting theme = "omarchy" in config forces the Omarchy loader; if no
+// Omarchy palette is detected it falls back to haruspex so the app remains
+// usable on non-Omarchy systems.
+//
+// Any explicit built-in name (haruspex, gruvbox, nord, light, dracula,
+// catppuccin) bypasses Omarchy entirely.
 func Get(name string) Theme {
 	var t Theme
 	n := strings.ToLower(name)
@@ -145,13 +149,11 @@ func Get(name string) Theme {
 		t = CatppuccinTheme()
 	case "haruspex":
 		t = HaruspexTheme()
-	case "pelorus":
-		t = PelorusTheme()
 	case "omarchy":
 		if ot, ok := LoadOmarchyTheme(); ok {
 			t = ot
 		} else {
-			t = CatppuccinTheme()
+			t = HaruspexTheme()
 		}
 	default:
 		if ot, ok := LoadOmarchyTheme(); ok {
@@ -160,15 +162,57 @@ func Get(name string) Theme {
 			t = HaruspexTheme()
 		}
 	}
-	// Populate Card* semantic styles from the theme's existing accent so
-	// previews/fallback cards colour-match the active theme.
+	// Populate Card* semantic styles from the theme's accent. Use the theme's
+	// own background luminance (not the user-supplied name) to decide whether
+	// the palette is light — that way Omarchy light themes, custom themes,
+	// etc. all get the right card styles automatically.
 	accent := extractAccent(t)
-	if n == "light" {
+	if isLightTheme(t) {
 		applyLightCards(&t, accent)
 	} else {
 		applyDarkCards(&t, accent)
 	}
 	return t
+}
+
+// isLightTheme returns true when the theme's pane background is bright
+// enough that light-mode contrast styling should apply.
+func isLightTheme(t Theme) bool {
+	bg, ok := t.PaletteItem.GetBackground().(lipgloss.Color)
+	if !ok {
+		return false
+	}
+	return hexLuminance(string(bg)) > 0.5
+}
+
+// hexLuminance returns a rough [0,1] perceived luminance for a #rrggbb
+// string. Returns 0 for unparseable inputs.
+func hexLuminance(hex string) float64 {
+	h := strings.TrimPrefix(hex, "#")
+	if len(h) != 6 {
+		return 0
+	}
+	var r, g, b int
+	for i, out := range []*int{&r, &g, &b} {
+		var v int
+		for j := 0; j < 2; j++ {
+			c := h[i*2+j]
+			var d int
+			switch {
+			case c >= '0' && c <= '9':
+				d = int(c - '0')
+			case c >= 'a' && c <= 'f':
+				d = int(c-'a') + 10
+			case c >= 'A' && c <= 'F':
+				d = int(c-'A') + 10
+			default:
+				return 0
+			}
+			v = v*16 + d
+		}
+		*out = v
+	}
+	return (0.2126*float64(r) + 0.7152*float64(g) + 0.0722*float64(b)) / 255.0
 }
 
 // extractAccent returns the theme's primary accent colour as a hex string,
@@ -181,152 +225,6 @@ func extractAccent(t Theme) string {
 	return "#888888"
 }
 
-// ---------------------------------------------------------------------------
-// pelorus — retrofuture subaquatic
-// ---------------------------------------------------------------------------
-
-const (
-	colorBg             = "#0a0f14"
-	colorBgPane         = "#0d1520"
-	colorPrimary        = "#0e7c7b"
-	colorAccent         = "#00ffd0"
-	colorAccentDim      = "#00a896"
-	colorText           = "#c8d8e8"
-	colorTextDim        = "#4a6070"
-	colorDir            = "#4fc3f7"
-	colorSymlink        = "#b39ddb"
-	colorBorderActive   = "#00ffd0"
-	colorBorderInactive = "#1a3040"
-	colorCursorBg       = "#0e4060"
-	colorCursorFg       = "#00ffd0"
-	colorStatus         = "#081018"
-	colorPaletteBg      = "#0d1a26"
-	colorSelected       = "#00ffd0"
-	colorSelectedBg     = "#0a3050"
-)
-
-func PelorusTheme() Theme {
-	hdrBg := colorPrimary
-	return Theme{
-		HeaderBg:  hdrBg,
-
-
-		ActiveBorder: lipgloss.NewStyle().
-			Border(lipgloss.ThickBorder()).
-			BorderForeground(lipgloss.Color(colorBorderActive)).
-			Background(lipgloss.Color(colorBgPane)),
-
-		InactiveBorder: lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color(colorBorderInactive)).
-			Background(lipgloss.Color(colorBgPane)),
-
-		PreviewBorder: lipgloss.NewStyle().
-			Border(lipgloss.Border{
-				Top: "╌", Bottom: "╌",
-				Left: "┊", Right: "┊",
-				TopLeft: "╭", TopRight: "╮",
-				BottomLeft: "╰", BottomRight: "╯",
-			}).
-			BorderForeground(lipgloss.Color(colorBorderInactive)).
-			Background(lipgloss.Color(colorBgPane)),
-
-		Cursor: lipgloss.NewStyle().
-			Background(lipgloss.Color(colorCursorBg)).
-			Foreground(lipgloss.Color(colorCursorFg)).
-			Bold(true),
-
-		DirName: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorDir)).
-			Bold(true),
-
-		FileName: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorText)),
-
-		SymlinkName: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorSymlink)).
-			Italic(true),
-
-		StatusBar: lipgloss.NewStyle().
-			Background(lipgloss.Color(colorStatus)).
-			Foreground(lipgloss.Color(colorAccentDim)).
-			Padding(0, 1),
-
-		PaletteBox: lipgloss.NewStyle().
-			Border(lipgloss.DoubleBorder()).
-			BorderForeground(lipgloss.Color(colorAccent)).
-			Background(lipgloss.Color(colorPaletteBg)).
-			Padding(1, 2),
-
-		PaletteInput: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorAccent)).
-			Background(lipgloss.Color(colorPaletteBg)),
-
-		PaletteItem: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorText)).
-			Background(lipgloss.Color(colorPaletteBg)),
-
-		PaletteSelected: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorSelected)).
-			Background(lipgloss.Color(colorSelectedBg)).
-			Bold(true),
-
-		PathHeader: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorAccentDim)).
-			Bold(true),
-
-		MarkedEntry: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#ffd700")).
-			Bold(true),
-
-		Divider: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorBorderInactive)),
-
-		Header: lipgloss.NewStyle().
-			Background(lipgloss.Color(hdrBg)),
-
-		HeaderTitle: lipgloss.NewStyle().
-			Background(lipgloss.Color(hdrBg)).
-			Foreground(lipgloss.Color(colorAccent)).
-			Bold(true),
-
-		HeaderPath: lipgloss.NewStyle().
-			Background(lipgloss.Color(hdrBg)).
-			Foreground(lipgloss.Color("#b2d8d8")),
-
-		HeaderHint: lipgloss.NewStyle().
-			Background(lipgloss.Color(hdrBg)).
-			Foreground(lipgloss.Color("#b0d8d8")),
-
-		StatusBarAccent: lipgloss.NewStyle().
-			Background(lipgloss.Color(colorStatus)).
-			Foreground(lipgloss.Color(colorAccent)),
-
-		StatusBarMuted: lipgloss.NewStyle().
-			Background(lipgloss.Color(colorStatus)).
-			Foreground(lipgloss.Color(colorAccentDim)),
-
-		FooterBg: colorStatus,
-		FooterKey: lipgloss.NewStyle().
-			Background(lipgloss.Color(colorStatus)).
-			Foreground(lipgloss.Color(colorAccent)).
-			Bold(true),
-		FooterDesc: lipgloss.NewStyle().
-			Background(lipgloss.Color(colorStatus)).
-			Foreground(lipgloss.Color(colorAccentDim)),
-		FooterHover: lipgloss.NewStyle().
-			Background(lipgloss.Color(colorAccent)).
-			Foreground(lipgloss.Color(colorStatus)).
-			Bold(true),
-
-		SectionLabel: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorAccent)).
-			Bold(true),
-
-		MascotStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorAccent)),
-	}
-}
 
 // ---------------------------------------------------------------------------
 // gruvbox — warm retro
@@ -688,7 +586,7 @@ func LightTheme() Theme {
 
 		StatusBarMuted: lipgloss.NewStyle().
 			Background(lipgloss.Color("#e0e0e0")).
-			Foreground(lipgloss.Color("#777777")),
+			Foreground(lipgloss.Color("#555555")),
 
 		FooterBg: "#e0e0e0",
 		FooterKey: lipgloss.NewStyle().
@@ -697,7 +595,7 @@ func LightTheme() Theme {
 			Bold(true),
 		FooterDesc: lipgloss.NewStyle().
 			Background(lipgloss.Color("#e0e0e0")).
-			Foreground(lipgloss.Color("#555555")),
+			Foreground(lipgloss.Color("#2a2a2a")),
 		FooterHover: lipgloss.NewStyle().
 			Background(lipgloss.Color("#0e7c7b")).
 			Foreground(lipgloss.Color("#ffffff")).

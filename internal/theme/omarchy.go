@@ -12,13 +12,19 @@ import (
 // ~/.config/omarchy/current/theme/colors.toml and maps it to a pelorus Theme.
 // Returns (theme, true) on success, (zero, false) if the file isn't found.
 //
-// Omarchy stores its palette as a flat key=value file with ANSI color names:
+// Omarchy is a Linux distro (basecamp/omarchy); `current/theme` is a symlink
+// to the user's active theme directory, built-in or custom. The colors.toml
+// inside is a flat key=value file with ANSI color names:
 //
 //	background, foreground, cursor, selection_background
 //	color0–color15  (standard ANSI 16-color set)
 //	accent          (optional; Omarchy-specific primary accent colour)
 //
-// ANSI role conventions used here:
+// Light themes are signalled by either a `light.mode` sentinel file in the
+// theme directory or (as a fallback) a background that is perceptually
+// brighter than the foreground.
+//
+// ANSI role conventions:
 //
 //	color0  black (darkest surface)          color8  bright black (overlay/muted)
 //	color1  red                              color9  bright red
@@ -45,9 +51,10 @@ func LoadOmarchyTheme() (Theme, bool) {
 		return Theme{}, false
 	}
 
-	// Light mode: signalled by presence of a light.mode sentinel file.
+	// Light mode: sentinel file, or background brighter than foreground.
 	_, statErr := os.Stat(filepath.Join(themeDir, "light.mode"))
-	light := statErr == nil
+	light := statErr == nil ||
+		hexLuminance(c["background"]) > hexLuminance(c["foreground"])
 
 	// get returns the first non-empty value among the given keys.
 	get := func(keys ...string) string {
@@ -74,19 +81,31 @@ func LoadOmarchyTheme() (Theme, bool) {
 		hdrBg          string
 		accentDim      string
 		dimText        string
+		hintText       string
 	)
 
 	if light {
+		// Light themes: surfaces must sit a touch darker than the pure
+		// background so panels/header/status are visible against it, and all
+		// foreground text must use the dark `foreground` colour, not anything
+		// derived from background.
 		dirColor = get("color4", "color12")
 		symlinkColor = get("color5", "color13")
 		selBg = get("selection_background", "color7")
 		inactiveBorder = get("color8", "color7")
-		statusBg = get("color7", "foreground")
-		paletteBg = get("color7", "background")
+		// Prefer bright white (color15) for surfaces when it differs from
+		// background; otherwise fall back to selection_background which is a
+		// subtle tint by convention.
+		statusBg = pickDifferent(paneBg, get("color15"), get("selection_background"), get("color7"), paneBg)
+		paletteBg = pickDifferent(paneBg, get("color15"), get("selection_background"), get("color7"), paneBg)
+		hdrBg = pickDifferent(paneBg, get("selection_background"), get("color7"), get("color15"), paneBg)
 		markedColor = get("color3", "color11")
-		hdrBg = get("color7", "color8")
-		accentDim = get("color6", "color14", "accent")
-		dimText = get("color8", "color0")
+		// Dim variants for muted text must stay legible on light surfaces —
+		// use a dark tone rather than color8 which is often near-black only
+		// in dark palettes.
+		accentDim = get("accent", "color4", "color12", "color6")
+		dimText = darken(foreground, 0x55)
+		hintText = darken(foreground, 0x33)
 	} else {
 		dirColor = get("color12", "color4")     // bright blue preferred for dirs
 		symlinkColor = get("color13", "color5") // bright magenta for symlinks
@@ -97,7 +116,10 @@ func LoadOmarchyTheme() (Theme, bool) {
 		markedColor = get("color11", "color3") // bright yellow for marked items
 		hdrBg = get("color8", "color0")
 		accentDim = get("color14", "color6", "accent")
-		dimText = get("color8", "color7")
+		// For dark themes, color7 (white-ish) is a good muted body text;
+		// color8 is too close to the background for small text.
+		dimText = get("color7", "color15", "foreground")
+		hintText = get("color7", "color15", "foreground")
 	}
 
 	return Theme{
@@ -188,7 +210,7 @@ func LoadOmarchyTheme() (Theme, bool) {
 
 		HeaderHint: lipgloss.NewStyle().
 			Background(lipgloss.Color(hdrBg)).
-			Foreground(lipgloss.Color(paneBg)),
+			Foreground(lipgloss.Color(hintText)),
 
 		StatusBarAccent: lipgloss.NewStyle().
 			Background(lipgloss.Color(statusBg)).
@@ -218,6 +240,57 @@ func LoadOmarchyTheme() (Theme, bool) {
 		MascotStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(accent)),
 	}, true
+}
+
+// pickDifferent returns the first candidate whose hex value is different
+// (normalised case-insensitively) from `base`; falls back to the final
+// argument when all candidates equal base.
+func pickDifferent(base string, candidates ...string) string {
+	b := strings.ToLower(strings.TrimSpace(base))
+	for _, v := range candidates[:len(candidates)-1] {
+		if v == "" {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(v)) != b {
+			return v
+		}
+	}
+	return candidates[len(candidates)-1]
+}
+
+// darken shifts each channel of a #rrggbb colour toward black by `amt`
+// (0-255). Used to derive readable muted foregrounds on light themes when
+// the palette doesn't ship an explicit mid-grey.
+func darken(hex string, amt int) string {
+	h := strings.TrimPrefix(strings.TrimSpace(hex), "#")
+	if len(h) != 6 {
+		return hex
+	}
+	out := "#"
+	for i := 0; i < 3; i++ {
+		var v int
+		for j := 0; j < 2; j++ {
+			c := h[i*2+j]
+			var d int
+			switch {
+			case c >= '0' && c <= '9':
+				d = int(c - '0')
+			case c >= 'a' && c <= 'f':
+				d = int(c-'a') + 10
+			case c >= 'A' && c <= 'F':
+				d = int(c-'A') + 10
+			default:
+				return hex
+			}
+			v = v*16 + d
+		}
+		v -= amt
+		if v < 0 {
+			v = 0
+		}
+		out += string("0123456789abcdef"[v>>4]) + string("0123456789abcdef"[v&0xf])
+	}
+	return out
 }
 
 // parseOmarchyColors parses the flat key=value color file used by Omarchy.
