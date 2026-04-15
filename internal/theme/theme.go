@@ -574,11 +574,12 @@ func LightTheme() Theme {
 
 		HeaderPath: lipgloss.NewStyle().
 			Background(lipgloss.Color(hdrBg)).
-			Foreground(lipgloss.Color("#b2d8d8")),
+			Foreground(lipgloss.Color("#ffffff")),
 
 		HeaderHint: lipgloss.NewStyle().
 			Background(lipgloss.Color(hdrBg)).
-			Foreground(lipgloss.Color("#b0d8d8")),
+			Foreground(lipgloss.Color("#e8f4f4")).
+			Bold(true),
 
 		StatusBarAccent: lipgloss.NewStyle().
 			Background(lipgloss.Color("#e0e0e0")).
