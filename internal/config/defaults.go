@@ -15,7 +15,8 @@ func Defaults() *Config {
 			PreviewWidth: 40,
 		},
 		Theme: ThemeConfig{
-			Name: "haruspex",
+			Name:      "haruspex",
+			IconStyle: "unicode",
 		},
 		Keybindings: map[string]string{},
 		Actions:     ActionsConfig{},
@@ -58,6 +59,11 @@ preview_width = 40
 # ~/.config/omarchy/current/theme/colors.toml is inherited automatically when
 # name = "omarchy"; any built-in name above takes precedence.
 name = "haruspex"
+
+# File icon glyph set:
+#   "unicode" — pure Unicode shapes, works in any terminal (default)
+#   "nerd"    — Nerd Font devicons (requires a Nerd Font installed)
+icons = "unicode"
 
 [keybindings]
 # Override any action's keybinding. Format: "action.id" = "key"

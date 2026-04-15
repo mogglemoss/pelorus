@@ -21,6 +21,7 @@ import (
 	"github.com/mogglemoss/pelorus/internal/quotes"
 	"github.com/mogglemoss/pelorus/internal/theme"
 	"github.com/mogglemoss/pelorus/internal/version"
+	"github.com/mogglemoss/pelorus/pkg/fileinfo"
 )
 
 var cfgFile string
@@ -145,6 +146,14 @@ func run(cmd *cobra.Command, args []string) error {
 		tName = themeName
 	}
 	t := theme.Get(tName)
+
+	// Apply icon style from config.
+	switch strings.ToLower(cfg.Theme.IconStyle) {
+	case "nerd":
+		fileinfo.SetIconStyle(fileinfo.IconStyleNerd)
+	default:
+		fileinfo.SetIconStyle(fileinfo.IconStyleUnicode)
+	}
 
 	// Set up action registry.
 	reg := actions.NewRegistry()

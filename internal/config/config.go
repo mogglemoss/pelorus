@@ -35,6 +35,10 @@ type LayoutConfig struct {
 // ThemeConfig holds theme settings.
 type ThemeConfig struct {
 	Name string `toml:"name"`
+	// IconStyle selects the file-icon glyph set. Valid values:
+	//   "unicode" (default) — pure Unicode shapes, no font dependency
+	//   "nerd"              — Nerd Font devicons (requires Nerd Font)
+	IconStyle string `toml:"icons"`
 }
 
 // ActionsConfig holds custom action definitions.
